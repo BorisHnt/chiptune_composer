@@ -8,14 +8,10 @@
   --color-cream: #ffeecc;
   --color-peach: #ffb0a3;
   --color-rose: #ff6973;
-  --color-cream-soft: rgba(255, 238, 204, 0.72);
-  --color-cream-strong: rgba(255, 238, 204, 0.94);
-  --color-peach-soft: rgba(255, 176, 163, 0.38);
-  --color-slate-soft: rgba(21, 120, 140, 0.15);
   --color-ink-soft: rgba(70, 66, 94, 0.2);
   --color-grid: rgba(70, 66, 94, 0.15);
   --color-grid-light: rgba(70, 66, 94, 0.08);
-  --color-panel: rgba(255, 238, 204, 0.85);
+  --color-panel: rgba(255, 255, 255, 0.6);
 
   /* radius */
   --radius-sm: 4px;
@@ -32,6 +28,9 @@
   --space-md: 16px;
   --space-lg: 24px;
   --space-xl: 32px;
+
+  --track-height: 128px;
+  --block-height: 72px;
 }
 
 * {
@@ -42,12 +41,7 @@ body {
   margin: 0;
   color: var(--color-ink);
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
-  background: linear-gradient(
-    140deg,
-    var(--color-cream) 0%,
-    var(--color-peach-soft) 45%,
-    var(--color-slate-soft) 100%
-  );
+  background: linear-gradient(140deg, #fff6df 0%, #ffe7d4 30%, #f6f3ff 100%);
   min-height: 100vh;
 }
 
@@ -64,6 +58,7 @@ body {
   padding: var(--space-md) var(--space-lg);
   border-bottom: var(--border-thin);
   background: var(--color-panel);
+  backdrop-filter: blur(8px);
 }
 
 .brand-title {
@@ -89,7 +84,7 @@ body {
   align-items: center;
   gap: var(--space-xs);
   font-size: 0.85rem;
-  background: var(--color-cream-soft);
+  background: rgba(255, 255, 255, 0.7);
   border: var(--border-soft);
   border-radius: var(--radius-sm);
   padding: var(--space-2xs) var(--space-xs);
@@ -136,7 +131,7 @@ main {
 #arrangement {
   border: var(--border-thin);
   border-radius: var(--radius-md);
-  background: var(--color-cream-soft);
+  background: rgba(255, 255, 255, 0.7);
   padding: var(--space-md);
 }
 
@@ -161,7 +156,7 @@ main {
 }
 
 .track-list {
-  background: var(--color-cream-soft);
+  background: rgba(255, 255, 255, 0.8);
   border-right: var(--border-thin);
 }
 
@@ -171,8 +166,8 @@ main {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
-  height: 104px;
-  justify-content: center;
+  height: var(--track-height);
+  justify-content: flex-start;
 }
 
 .track-title {
@@ -181,13 +176,28 @@ main {
   align-items: center;
   font-size: 0.9rem;
   font-weight: 600;
+  gap: var(--space-xs);
+}
+
+.track-title span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-title .btn {
+  flex-shrink: 0;
 }
 
 .track-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-2xs) var(--space-xs);
-  font-size: 0.72rem;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 4px 6px;
+  font-size: 0.7rem;
+  flex: 1;
+  min-height: 0;
 }
 
 .track-controls label {
@@ -195,10 +205,10 @@ main {
   justify-content: space-between;
   align-items: center;
   gap: var(--space-2xs);
-  background: var(--color-cream-soft);
+  background: rgba(255, 255, 255, 0.6);
   border: var(--border-soft);
   border-radius: var(--radius-sm);
-  padding: 2px 4px;
+  padding: 1px 4px;
 }
 
 .track-controls select,
@@ -232,7 +242,7 @@ main {
 
 .track-lane {
   position: relative;
-  height: 104px;
+  height: var(--track-height);
   border-bottom: var(--border-soft);
   background-image:
     repeating-linear-gradient(
@@ -253,8 +263,8 @@ main {
 
 .block {
   position: absolute;
-  top: 16px;
-  height: 72px;
+  top: calc((var(--track-height) - var(--block-height)) / 2);
+  height: var(--block-height);
   background: var(--color-peach);
   border: var(--border-thin);
   border-radius: var(--radius-sm);
@@ -275,7 +285,7 @@ main {
 }
 
 .block.is-playing {
-  outline: 1px solid var(--color-rose);
+  outline: 2px solid var(--color-rose);
 }
 
 .block-header {
@@ -315,7 +325,7 @@ main {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 1px;
+  width: 2px;
   background: var(--color-rose);
   pointer-events: none;
   z-index: 5;
@@ -343,7 +353,7 @@ main {
 
 .overlay-panel {
   height: 100%;
-  background: var(--color-cream-strong);
+  background: rgba(255, 255, 255, 0.92);
   border: var(--border-thin);
   border-radius: var(--radius-md);
   display: flex;
@@ -382,7 +392,7 @@ main {
 }
 
 .piano-keys {
-  background: var(--color-cream-soft);
+  background: rgba(255, 255, 255, 0.7);
   border-right: var(--border-thin);
   overflow: hidden;
 }
@@ -449,7 +459,7 @@ main {
   top: 0;
   width: 6px;
   height: 100%;
-  background: rgba(255, 238, 204, 0.6);
+  background: rgba(255, 255, 255, 0.4);
   cursor: ew-resize;
 }
 
@@ -470,7 +480,7 @@ main {
 
 .drum-toolbar select {
   border: var(--border-soft);
-  background: var(--color-cream-soft);
+  background: rgba(255, 255, 255, 0.7);
   border-radius: var(--radius-sm);
   font: inherit;
   padding: 2px 6px;
@@ -485,7 +495,7 @@ main {
 
 .drum-labels {
   border-right: var(--border-thin);
-  background: var(--color-cream-soft);
+  background: rgba(255, 255, 255, 0.7);
 }
 
 .drum-label {
@@ -544,6 +554,10 @@ main {
 }
 
 @media (max-width: 800px) {
+  :root {
+    --track-height: 176px;
+  }
+
   main {
     padding: var(--space-md);
   }

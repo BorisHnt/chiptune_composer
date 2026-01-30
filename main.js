@@ -81,6 +81,9 @@ const timeline = new Timeline({
     const block = track.blocks.find((item) => item.id === blockId);
     if (!block) return;
     Object.assign(block, changes);
+    if (typeof changes.length === "number" && track.type === "synth") {
+      trimNotesToBlock(block);
+    }
     commitChange();
   },
   onAddBlock: (trackId) => {
@@ -149,6 +152,20 @@ const drumEditor = new DrumEditor({
     audioEngine.previewDrum(track, drum);
   },
 });
+
+function trimNotesToBlock(block) {
+  if (!block || !Array.isArray(block.notes)) return;
+  block.notes = block.notes
+    .filter((note) => note.start < block.length)
+    .map((note) => {
+      const maxDuration = block.length - note.start;
+      if (note.duration > maxDuration) {
+        note.duration = Math.max(0.01, maxDuration);
+      }
+      return note;
+    })
+    .filter((note) => note.duration > 0);
+}
 
 function commitChange(options = {}) {
   const {
@@ -383,6 +400,7 @@ ui.loadInput.addEventListener("change", async () => {
   } catch (error) {
     console.error("Invalid JSON", error);
   }
+  ui.loadInput.value = "";
 });
 
 ui.exportBtn.addEventListener("click", async () => {
