@@ -181,7 +181,7 @@ function commitChange(options = {}) {
     reRenderTimeline = true,
     reRenderEditors = true,
     record = true,
-    restartPlayback = record,
+    shouldRestartPlayback = record,
   } = options;
   if (record) {
     history.push(project);
@@ -192,7 +192,7 @@ function commitChange(options = {}) {
   if (reRenderEditors && activeBlockId) {
     refreshEditor();
   }
-  if (isPlaying && restartPlayback) {
+  if (isPlaying && shouldRestartPlayback) {
     restartPlayback();
   }
 }
