@@ -52,6 +52,13 @@ let playbackStopTimer = null;
 const history = new HistoryManager(project);
 const audioEngine = new AudioEngine();
 
+const unlockAudio = () => {
+  audioEngine.ensureContext();
+};
+
+window.addEventListener("pointerdown", unlockAudio, { once: true });
+window.addEventListener("keydown", unlockAudio, { once: true });
+
 const timeline = new Timeline({
   container: ui.timeline,
   project,
@@ -357,6 +364,10 @@ ui.zoomSlider.addEventListener("input", () => {
 
 ui.quantizeBtn.addEventListener("click", () => {
   quantizeProject(project, snap);
+  project.tracks.forEach((track) => {
+    if (track.type !== "synth") return;
+    track.blocks.forEach((block) => trimNotesToBlock(block));
+  });
   commitChange();
 });
 

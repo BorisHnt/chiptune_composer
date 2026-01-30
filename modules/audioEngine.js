@@ -267,6 +267,9 @@ export class AudioEngine {
       this.masterGain.gain.value = 0.9;
       this.masterGain.connect(this.context.destination);
     }
+    if (this.context.state === "suspended") {
+      this.context.resume().catch(() => {});
+    }
   }
 
   playProject(project, { loop = false } = {}) {

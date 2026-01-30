@@ -24,8 +24,8 @@ export class PianoRoll {
     this.onPreviewNote = onPreviewNote;
     this.track = null;
     this.block = null;
-    this.minPitch = 48;
-    this.maxPitch = 84;
+    this.minPitch = 12;
+    this.maxPitch = 108;
     this.rowHeight = 24;
     this.noteElements = new Map();
   }
@@ -74,6 +74,9 @@ export class PianoRoll {
       const key = document.createElement("div");
       key.className = "piano-key";
       key.textContent = getNoteName(pitch);
+      key.addEventListener("pointerdown", () => {
+        this.onPreviewNote?.(pitch);
+      });
       keys.appendChild(key);
     }
 
@@ -82,7 +85,7 @@ export class PianoRoll {
 
     const grid = document.createElement("div");
     grid.className = "piano-grid";
-    const totalBeats = Math.max(this.block.length, 4);
+    const totalBeats = Math.max(this.block.length, this.snap);
     grid.style.width = `${this.beatToPx(totalBeats)}px`;
     grid.style.height = `${(this.maxPitch - this.minPitch + 1) * this.rowHeight}px`;
     grid.style.setProperty("--grid-major", `${this.zoom * 4}px`);
@@ -97,6 +100,10 @@ export class PianoRoll {
     this.container.appendChild(keys);
     this.container.appendChild(gridWrap);
 
+    gridWrap.addEventListener("scroll", () => {
+      keys.scrollTop = gridWrap.scrollTop;
+    });
+
     this.noteElements.clear();
 
     this.block.notes.forEach((note) => {
@@ -108,10 +115,11 @@ export class PianoRoll {
 
     grid.addEventListener("pointerdown", (event) => {
       if (event.target.closest(".note")) return;
-      const rect = grid.getBoundingClientRect();
+      const rect = gridWrap.getBoundingClientRect();
       const x = event.clientX - rect.left + gridWrap.scrollLeft;
       const y = event.clientY - rect.top + gridWrap.scrollTop;
-      const beat = this.quantize(this.pxToBeat(x));
+      const maxStart = Math.max(0, this.block.length - this.snap);
+      const beat = clamp(this.quantize(this.pxToBeat(x)), 0, maxStart);
       const pitchIndex = Math.floor(y / this.rowHeight);
       const pitch = clamp(this.maxPitch - pitchIndex, this.minPitch, this.maxPitch);
 
@@ -181,11 +189,12 @@ export class PianoRoll {
     const onMove = (moveEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const deltaY = moveEvent.clientY - startY;
-      const nextStart = this.quantize(initialStart + this.pxToBeat(deltaX));
+      const maxStart = Math.max(0, this.block.length - note.duration);
+      const nextStart = clamp(this.quantize(initialStart + this.pxToBeat(deltaX)), 0, maxStart);
       const pitchDelta = Math.round(deltaY / this.rowHeight);
       const nextPitch = clamp(initialPitch - pitchDelta, this.minPitch, this.maxPitch);
 
-      note.start = Math.max(0, nextStart);
+      note.start = nextStart;
       note.pitch = nextPitch;
 
       noteEl.style.left = `${this.beatToPx(note.start)}px`;
@@ -211,7 +220,12 @@ export class PianoRoll {
 
     const onMove = (moveEvent) => {
       const deltaX = moveEvent.clientX - startX;
-      const nextDuration = Math.max(this.snap, this.quantize(initialDuration + this.pxToBeat(deltaX)));
+      const maxDuration = Math.max(this.snap, this.block.length - note.start);
+      const nextDuration = clamp(
+        this.quantize(initialDuration + this.pxToBeat(deltaX)),
+        this.snap,
+        maxDuration
+      );
       note.duration = nextDuration;
       noteEl.style.width = `${this.beatToPx(note.duration)}px`;
       this.onNoteChange?.(this.block.notes, { commit: false });
