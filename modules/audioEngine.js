@@ -2,6 +2,7 @@ import { DEFAULT_DRUM_ROWS, ensureDrumPattern, getProjectEndBeat } from "./dataM
 
 const PULSE_WAVES = new Map();
 const NOISE_BUFFERS = new Map();
+const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 
 const DEFAULT_ADSR = {
   attack: 0.01,
@@ -262,7 +263,10 @@ export class AudioEngine {
 
   ensureContext() {
     if (!this.context) {
-      this.context = new AudioContext();
+      if (!AudioContextClass) {
+        throw new Error("Web Audio API not supported");
+      }
+      this.context = new AudioContextClass();
       this.masterGain = this.context.createGain();
       this.masterGain.gain.value = 0.9;
       this.masterGain.connect(this.context.destination);

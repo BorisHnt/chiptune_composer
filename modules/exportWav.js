@@ -68,8 +68,12 @@ export async function exportProjectToWav(project) {
   const totalBeats = getProjectEndBeat(project);
   const duration = totalBeats * secondsPerBeat + 1;
   const sampleRate = 44100;
+  const OfflineContextClass = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!OfflineContextClass) {
+    throw new Error("OfflineAudioContext not supported");
+  }
 
-  const offline = new OfflineAudioContext(2, duration * sampleRate, sampleRate);
+  const offline = new OfflineContextClass(2, duration * sampleRate, sampleRate);
   const master = offline.createGain();
   master.gain.value = 0.9;
   master.connect(offline.destination);

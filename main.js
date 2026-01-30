@@ -132,8 +132,8 @@ const pianoRoll = new PianoRoll({
       restartPreview();
     }
   },
-  onPreviewNote: (pitch) => {
-    const track = getActiveTrack();
+  onPreviewNote: (pitch, trackOverride) => {
+    const track = trackOverride || getActiveTrack() || pianoRoll.track;
     if (!track) return;
     audioEngine.previewNote(track, pitch);
   },
@@ -266,8 +266,8 @@ function refreshEditor() {
 }
 
 function restartPreview() {
-  const track = getActiveTrack();
-  const block = getActiveBlock();
+  const track = getActiveTrack() || pianoRoll.track;
+  const block = getActiveBlock() || pianoRoll.block;
   if (!track || !block) return;
   audioEngine.previewBlock(track, block, project.bpm, { loop: previewEnabled });
 }

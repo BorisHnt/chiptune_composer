@@ -75,7 +75,7 @@ export class PianoRoll {
       key.className = "piano-key";
       key.textContent = getNoteName(pitch);
       key.addEventListener("pointerdown", () => {
-        this.onPreviewNote?.(pitch);
+        this.onPreviewNote?.(pitch, this.track);
       });
       keys.appendChild(key);
     }
@@ -113,7 +113,7 @@ export class PianoRoll {
       this.noteElements.set(note.id, noteEl);
     });
 
-    grid.addEventListener("pointerdown", (event) => {
+    const handlePointer = (event) => {
       if (event.target.closest(".note")) return;
       const rect = gridWrap.getBoundingClientRect();
       const x = event.clientX - rect.left + gridWrap.scrollLeft;
@@ -137,10 +137,13 @@ export class PianoRoll {
         duration: this.snap,
         velocity: 0.9,
       });
-      this.onPreviewNote?.(pitch);
+      this.onPreviewNote?.(pitch, this.track);
       this.onNoteChange?.(this.block.notes, { commit: true });
       this.render();
-    });
+    };
+
+    grid.addEventListener("pointerdown", handlePointer);
+    gridWrap.addEventListener("pointerdown", handlePointer);
   }
 
   findNoteAt(pitch, start) {
@@ -162,7 +165,7 @@ export class PianoRoll {
 
     noteEl.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
-      this.onPreviewNote?.(note.pitch);
+      this.onPreviewNote?.(note.pitch, this.track);
       if (event.target === handle) {
         this.attachResize(note, noteEl, event);
       } else {
