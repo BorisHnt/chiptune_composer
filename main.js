@@ -220,7 +220,7 @@ function openEditor(trackId, blockId) {
   previewEnabled = false;
   ui.previewBtn.setAttribute("aria-pressed", "false");
   ui.editorOverlay.classList.remove("hidden");
-  audioEngine.runWithContext(() => {});
+  audioEngine.unlock();
   refreshEditor();
 }
 
@@ -427,7 +427,7 @@ ui.previewBtn.addEventListener("click", () => {
 ui.closeEditorBtn.addEventListener("click", closeEditor);
 
 ui.editorOverlay.addEventListener("pointerdown", () => {
-  audioEngine.runWithContext(() => {});
+  audioEngine.unlock();
 });
 
 window.addEventListener("keydown", (event) => {

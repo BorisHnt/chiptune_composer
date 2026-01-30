@@ -231,6 +231,22 @@ function scheduleDrumPattern(context, trackChain, block, secondsPerBeat, startOf
   });
 }
 
+function createTrackOutput(context, master, volume = 0.8, pan = 0) {
+  const trackGain = context.createGain();
+  trackGain.gain.value = volume;
+
+  if (typeof context.createStereoPanner === "function") {
+    const trackPan = context.createStereoPanner();
+    trackPan.pan.value = pan;
+    trackGain.connect(trackPan);
+    trackPan.connect(master);
+    return { input: trackGain, output: trackPan };
+  }
+
+  trackGain.connect(master);
+  return { input: trackGain, output: trackGain };
+}
+
 export function scheduleProject(context, project, options = {}) {
   const { startTime = 0, master = context.destination, ignoreMuteSolo = false } = options;
   const secondsPerBeat = 60 / project.bpm;
@@ -242,23 +258,17 @@ export function scheduleProject(context, project, options = {}) {
       if (soloActive && !track.solo) return;
     }
 
-    const trackGain = context.createGain();
-    const trackPan = context.createStereoPanner();
-    trackGain.gain.value = track.volume ?? 0.8;
-    trackPan.pan.value = track.pan ?? 0;
-
-    trackGain.connect(trackPan);
-    trackPan.connect(master);
+    const trackOutput = createTrackOutput(context, master, track.volume ?? 0.8, track.pan ?? 0);
 
     track.blocks.forEach((block) => {
       if (track.type === "synth") {
         block.notes.forEach((note) => {
           const noteStart = startTime + (block.startBeat + note.start) * secondsPerBeat;
           const duration = note.duration * secondsPerBeat;
-          scheduleSynthNote(context, track, trackGain, note, noteStart, duration);
+          scheduleSynthNote(context, track, trackOutput.input, note, noteStart, duration);
         });
       } else {
-        scheduleDrumPattern(context, trackGain, block, secondsPerBeat, startTime);
+        scheduleDrumPattern(context, trackOutput.input, block, secondsPerBeat, startTime);
       }
     });
   });
@@ -274,6 +284,7 @@ export class AudioEngine {
     this.playDuration = 0;
     this.loopTimer = null;
     this.previewTimer = null;
+    this.unlockPromise = null;
   }
 
   ensureContext() {
@@ -290,19 +301,26 @@ export class AudioEngine {
     return true;
   }
 
-  runWithContext(callback) {
+  unlock() {
     if (!this.ensureContext()) {
-      return false;
+      return Promise.resolve(false);
     }
-    if (this.context.state === "suspended") {
-      this.context
+    if (this.context.state === "running") {
+      return Promise.resolve(true);
+    }
+    if (!this.unlockPromise) {
+      this.unlockPromise = this.context
         .resume()
-        .then(callback)
-        .catch(() => {});
-      return false;
+        .then(() => {
+          this.unlockPromise = null;
+          return this.context.state === "running";
+        })
+        .catch(() => {
+          this.unlockPromise = null;
+          return false;
+        });
     }
-    callback();
-    return true;
+    return this.unlockPromise;
   }
 
   playProject(project, { loop = false } = {}) {
@@ -331,7 +349,10 @@ export class AudioEngine {
       }
     };
 
-    this.runWithContext(schedule);
+    this.unlock().then((ready) => {
+      if (!ready) return;
+      schedule();
+    });
   }
 
   stop() {
@@ -362,29 +383,31 @@ export class AudioEngine {
   }
 
   previewNote(track, pitch, duration = 0.4) {
-    this.runWithContext(() => {
+    this.unlock().then((ready) => {
+      if (!ready) return;
       const now = this.context.currentTime + 0.01;
       const tempNote = { pitch, velocity: 0.9 };
-      const trackGain = this.context.createGain();
-      const trackPan = this.context.createStereoPanner();
-      trackGain.gain.value = track.volume ?? 0.8;
-      trackPan.pan.value = track.pan ?? 0;
-      trackGain.connect(trackPan);
-      trackPan.connect(this.masterGain);
-      scheduleSynthNote(this.context, track, trackGain, tempNote, now, duration);
+      const trackOutput = createTrackOutput(
+        this.context,
+        this.masterGain,
+        track.volume ?? 0.8,
+        track.pan ?? 0
+      );
+      scheduleSynthNote(this.context, track, trackOutput.input, tempNote, now, duration);
     });
   }
 
   previewDrum(track, drum) {
-    this.runWithContext(() => {
+    this.unlock().then((ready) => {
+      if (!ready) return;
       const now = this.context.currentTime + 0.01;
-      const trackGain = this.context.createGain();
-      const trackPan = this.context.createStereoPanner();
-      trackGain.gain.value = track.volume ?? 0.8;
-      trackPan.pan.value = track.pan ?? 0;
-      trackGain.connect(trackPan);
-      trackPan.connect(this.masterGain);
-      scheduleDrumHit(this.context, trackGain, drum, now);
+      const trackOutput = createTrackOutput(
+        this.context,
+        this.masterGain,
+        track.volume ?? 0.8,
+        track.pan ?? 0
+      );
+      scheduleDrumHit(this.context, trackOutput.input, drum, now);
     });
   }
 
@@ -396,21 +419,21 @@ export class AudioEngine {
 
       const scheduleOnce = () => {
         const startTime = this.context.currentTime + 0.05;
-        const trackGain = this.context.createGain();
-        const trackPan = this.context.createStereoPanner();
-        trackGain.gain.value = track.volume ?? 0.8;
-        trackPan.pan.value = track.pan ?? 0;
-        trackGain.connect(trackPan);
-        trackPan.connect(this.masterGain);
+        const trackOutput = createTrackOutput(
+          this.context,
+          this.masterGain,
+          track.volume ?? 0.8,
+          track.pan ?? 0
+        );
         if (track.type === "synth") {
           block.notes.forEach((note) => {
             const noteStart = startTime + note.start * secondsPerBeat;
             const duration = note.duration * secondsPerBeat;
-            scheduleSynthNote(this.context, track, trackGain, note, noteStart, duration);
+            scheduleSynthNote(this.context, track, trackOutput.input, note, noteStart, duration);
           });
         } else {
           const previewBlock = { ...block, startBeat: 0 };
-          scheduleDrumPattern(this.context, trackGain, previewBlock, secondsPerBeat, startTime);
+          scheduleDrumPattern(this.context, trackOutput.input, previewBlock, secondsPerBeat, startTime);
         }
       };
 
@@ -421,7 +444,10 @@ export class AudioEngine {
       }
     };
 
-    this.runWithContext(schedule);
+    this.unlock().then((ready) => {
+      if (!ready) return;
+      schedule();
+    });
   }
 
   stopPreview() {
