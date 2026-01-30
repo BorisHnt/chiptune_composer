@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chiptune Composer</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-title">Chiptune Composer</div>
+          <div class="brand-subtitle">DAW minimaliste / tracker moderne</div>
+        </div>
+        <div class="transport">
+          <button id="playBtn" class="btn">Play</button>
+          <button id="stopBtn" class="btn">Stop</button>
+          <label class="field">
+            <span>BPM</span>
+            <input id="bpmInput" type="number" min="40" max="240" step="1" />
+          </label>
+          <button id="loopBtn" class="btn toggle" aria-pressed="false">Loop</button>
+          <button id="exportBtn" class="btn">Export WAV</button>
+        </div>
+        <div class="tools">
+          <label class="field">
+            <span>Snap</span>
+            <select id="snapSelect">
+              <option value="1">1/4</option>
+              <option value="0.5">1/8</option>
+              <option value="0.25" selected>1/16</option>
+              <option value="0.125">1/32</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Zoom</span>
+            <input id="zoomSlider" type="range" min="40" max="160" step="8" />
+          </label>
+          <button id="quantizeBtn" class="btn">Quantize</button>
+          <button id="undoBtn" class="btn">Undo</button>
+          <button id="redoBtn" class="btn">Redo</button>
+          <button id="saveBtn" class="btn">Save JSON</button>
+          <button id="loadBtn" class="btn">Load JSON</button>
+          <input id="loadInput" type="file" accept="application/json" hidden />
+        </div>
+      </header>
+
+      <main>
+        <section id="arrangement">
+          <div class="timeline-header">
+            <div class="timeline-title">Timeline</div>
+            <div class="timeline-info" id="timeInfo">0:00</div>
+          </div>
+          <div id="timeline"></div>
+        </section>
+      </main>
+    </div>
+
+    <div id="editorOverlay" class="overlay hidden">
+      <div class="overlay-panel">
+        <div class="overlay-header">
+          <div id="editorTitle">Editor</div>
+          <div class="overlay-actions">
+            <button id="previewBtn" class="btn toggle" aria-pressed="false">Preview Loop</button>
+            <button id="closeEditorBtn" class="btn">Close</button>
+          </div>
+        </div>
+        <div class="overlay-body">
+          <div id="pianoRoll" class="editor hidden"></div>
+          <div id="drumEditor" class="editor hidden"></div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

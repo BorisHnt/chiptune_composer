@@ -1,0 +1,545 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap");
+
+:root {
+  /* colors */
+  --color-ink: #46425e;
+  --color-slate: #15788c;
+  --color-teal: #00b9be;
+  --color-cream: #ffeecc;
+  --color-peach: #ffb0a3;
+  --color-rose: #ff6973;
+  --color-ink-soft: rgba(70, 66, 94, 0.2);
+  --color-grid: rgba(70, 66, 94, 0.15);
+  --color-grid-light: rgba(70, 66, 94, 0.08);
+  --color-panel: rgba(255, 255, 255, 0.6);
+
+  /* radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+
+  /* borders */
+  --border-thin: 1px solid var(--color-ink);
+  --border-soft: 1px solid rgba(70, 66, 94, 0.2);
+
+  /* spacing */
+  --space-2xs: 4px;
+  --space-xs: 6px;
+  --space-sm: 10px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  background: linear-gradient(140deg, #fff6df 0%, #ffe7d4 30%, #f6f3ff 100%);
+  min-height: 100vh;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) 1fr 1fr;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: var(--border-thin);
+  background: var(--color-panel);
+  backdrop-filter: blur(8px);
+}
+
+.brand-title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.brand-subtitle {
+  font-size: 0.85rem;
+  color: rgba(70, 66, 94, 0.7);
+}
+
+.transport,
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.7);
+  border: var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2xs) var(--space-xs);
+}
+
+.field input,
+.field select {
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  outline: none;
+}
+
+.btn {
+  border: var(--border-thin);
+  background: var(--color-teal);
+  color: var(--color-cream);
+  padding: var(--space-2xs) var(--space-sm);
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.btn:hover {
+  filter: brightness(1.07);
+}
+
+.btn.toggle[aria-pressed="true"] {
+  background: var(--color-rose);
+}
+
+.btn.tiny {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+}
+
+main {
+  flex: 1;
+  padding: var(--space-lg);
+}
+
+#arrangement {
+  border: var(--border-thin);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.7);
+  padding: var(--space-md);
+}
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-sm);
+}
+
+.timeline-title {
+  font-weight: 600;
+}
+
+#timeline {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  border: var(--border-thin);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  min-height: 520px;
+}
+
+.track-list {
+  background: rgba(255, 255, 255, 0.8);
+  border-right: var(--border-thin);
+}
+
+.track-header {
+  border-bottom: var(--border-soft);
+  padding: var(--space-xs);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  height: 104px;
+  justify-content: center;
+}
+
+.track-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.track-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2xs) var(--space-xs);
+  font-size: 0.72rem;
+}
+
+.track-controls label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2xs);
+  background: rgba(255, 255, 255, 0.6);
+  border: var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+}
+
+.track-controls select,
+.track-controls input {
+  width: 90px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  outline: none;
+}
+
+.track-controls .mini {
+  width: 60px;
+}
+
+.lane-wrap {
+  position: relative;
+  overflow: hidden;
+}
+
+.lane-scroller {
+  position: relative;
+  overflow: auto;
+  height: 100%;
+}
+
+.lanes {
+  position: relative;
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+}
+
+.track-lane {
+  position: relative;
+  height: 104px;
+  border-bottom: var(--border-soft);
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      var(--color-grid) 0px,
+      var(--color-grid) 1px,
+      transparent 1px,
+      transparent var(--grid-major)
+    ),
+    repeating-linear-gradient(
+      to right,
+      var(--color-grid-light) 0px,
+      var(--color-grid-light) 1px,
+      transparent 1px,
+      transparent var(--grid-minor)
+    );
+}
+
+.block {
+  position: absolute;
+  top: 16px;
+  height: 72px;
+  background: var(--color-peach);
+  border: var(--border-thin);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--space-2xs);
+  cursor: grab;
+}
+
+.block.synth {
+  background: rgba(255, 176, 163, 0.9);
+}
+
+.block.drums {
+  background: rgba(0, 185, 190, 0.28);
+}
+
+.block.is-playing {
+  outline: 2px solid var(--color-rose);
+}
+
+.block-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+}
+
+.block-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.block-action {
+  border: var(--border-thin);
+  background: var(--color-cream);
+  border-radius: var(--radius-sm);
+  font-size: 0.65rem;
+  cursor: pointer;
+  padding: 1px 4px;
+}
+
+.block-resize {
+  width: 100%;
+  height: 8px;
+  cursor: ew-resize;
+  background: rgba(70, 66, 94, 0.1);
+  border-radius: var(--radius-sm);
+}
+
+.playhead,
+.cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-rose);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.cursor {
+  background: var(--color-slate);
+  opacity: 0.6;
+}
+
+.overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  background: rgba(70, 66, 94, 0.55);
+  padding: var(--space-lg);
+  height: 60vh;
+  z-index: 10;
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+.overlay-panel {
+  height: 100%;
+  background: rgba(255, 255, 255, 0.92);
+  border: var(--border-thin);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+}
+
+.overlay-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: var(--border-thin);
+}
+
+.overlay-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor.hidden {
+  display: none;
+}
+
+.piano-roll {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  height: 100%;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.piano-keys {
+  background: rgba(255, 255, 255, 0.7);
+  border-right: var(--border-thin);
+  overflow: hidden;
+}
+
+.piano-key {
+  height: 24px;
+  padding: 2px 6px;
+  border-bottom: var(--border-soft);
+  font-size: 0.7rem;
+}
+
+.piano-grid-wrap {
+  overflow: auto;
+  position: relative;
+}
+
+.piano-grid {
+  position: relative;
+  min-height: 100%;
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      var(--color-grid) 0px,
+      var(--color-grid) 1px,
+      transparent 1px,
+      transparent var(--grid-major)
+    ),
+    repeating-linear-gradient(
+      to right,
+      var(--color-grid-light) 0px,
+      var(--color-grid-light) 1px,
+      transparent 1px,
+      transparent var(--grid-minor)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(70, 66, 94, 0.08) 0px,
+      rgba(70, 66, 94, 0.08) 1px,
+      transparent 1px,
+      transparent 24px
+    );
+}
+
+.piano-notes {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.note {
+  position: absolute;
+  height: 22px;
+  background: var(--color-slate);
+  border: var(--border-thin);
+  border-radius: var(--radius-sm);
+  cursor: grab;
+}
+
+.note .resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.4);
+  cursor: ew-resize;
+}
+
+.drum-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.drum-toolbar {
+  padding: var(--space-xs);
+  border-bottom: var(--border-thin);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.drum-toolbar select {
+  border: var(--border-soft);
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  padding: 2px 6px;
+}
+
+.drum-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  overflow: hidden;
+}
+
+.drum-labels {
+  border-right: var(--border-thin);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.drum-label {
+  height: 28px;
+  border-bottom: var(--border-soft);
+  padding: 4px 6px;
+  font-size: 0.7rem;
+}
+
+.drum-grid-wrap {
+  overflow: auto;
+}
+
+.drum-grid {
+  position: relative;
+  display: grid;
+  grid-auto-rows: 28px;
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      var(--color-grid) 0px,
+      var(--color-grid) 1px,
+      transparent 1px,
+      transparent var(--grid-major)
+    ),
+    repeating-linear-gradient(
+      to right,
+      var(--color-grid-light) 0px,
+      var(--color-grid-light) 1px,
+      transparent 1px,
+      transparent var(--grid-minor)
+    );
+}
+
+.drum-cell {
+  width: var(--step-width);
+  height: 28px;
+  border-right: var(--border-soft);
+  border-bottom: var(--border-soft);
+  background: transparent;
+  cursor: pointer;
+}
+
+.drum-cell.active {
+  background: var(--color-peach);
+}
+
+@media (max-width: 1100px) {
+  .topbar {
+    grid-template-columns: 1fr;
+  }
+
+  #timeline {
+    grid-template-columns: 200px 1fr;
+  }
+}
+
+@media (max-width: 800px) {
+  main {
+    padding: var(--space-md);
+  }
+
+  #timeline {
+    grid-template-columns: 180px 1fr;
+  }
+
+  .track-controls {
+    grid-template-columns: 1fr;
+  }
+}
