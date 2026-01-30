@@ -11,6 +11,7 @@
   --color-ink-soft: rgba(70, 66, 94, 0.2);
   --color-grid: rgba(70, 66, 94, 0.15);
   --color-grid-light: rgba(70, 66, 94, 0.08);
+  --color-grid-strong: rgba(70, 66, 94, 0.28);
   --color-panel: rgba(255, 255, 255, 0.6);
 
   /* radius */
@@ -247,9 +248,9 @@ main {
   background-image:
     repeating-linear-gradient(
       to right,
-      var(--color-grid) 0px,
-      var(--color-grid) 1px,
-      transparent 1px,
+      var(--color-grid-strong) 0px,
+      var(--color-grid-strong) 2px,
+      transparent 2px,
       transparent var(--grid-major)
     ),
     repeating-linear-gradient(
@@ -415,9 +416,9 @@ main {
   background-image:
     repeating-linear-gradient(
       to right,
-      var(--color-grid) 0px,
-      var(--color-grid) 1px,
-      transparent 1px,
+      var(--color-grid-strong) 0px,
+      var(--color-grid-strong) 2px,
+      transparent 2px,
       transparent var(--grid-major)
     ),
     repeating-linear-gradient(
@@ -527,9 +528,9 @@ main {
   background-image:
     repeating-linear-gradient(
       to right,
-      var(--color-grid) 0px,
-      var(--color-grid) 1px,
-      transparent 1px,
+      var(--color-grid-strong) 0px,
+      var(--color-grid-strong) 2px,
+      transparent 2px,
       transparent var(--grid-major)
     ),
     repeating-linear-gradient(
