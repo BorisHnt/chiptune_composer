@@ -161,6 +161,7 @@ export class PianoRoll {
     });
 
     const handlePointer = (event) => {
+      event.preventDefault?.();
       if (event.target.closest(".note")) return;
       const { clientX, clientY } = getPoint(event);
       const rect = gridWrap.getBoundingClientRect();
@@ -190,7 +191,6 @@ export class PianoRoll {
       this.render();
     };
 
-    addStartListener(grid, handlePointer);
     addStartListener(gridWrap, handlePointer);
   }
 
