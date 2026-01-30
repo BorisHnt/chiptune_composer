@@ -74,14 +74,14 @@ function createOscillatorForTrack(context, track, frequency) {
       osc.type = "square";
     }
     osc.frequency.value = frequency;
-    return { osc, stop: () => osc.stop() };
+    return { osc, stop: (when) => osc.stop(when) };
   }
 
   if (track.console === "Atari" && waveform === "noise") {
     const source = context.createBufferSource();
     source.buffer = getNoiseBuffer(context);
     source.loop = true;
-    return { osc: source, stop: () => source.stop() };
+    return { osc: source, stop: (when) => source.stop(when) };
   }
 
   if (track.console === "Sega" || waveform === "fm") {
@@ -102,9 +102,9 @@ function createOscillatorForTrack(context, track, frequency) {
     return {
       osc: carrier,
       extra: [modulator],
-      stop: () => {
-        carrier.stop();
-        modulator.stop();
+      stop: (when) => {
+        carrier.stop(when);
+        modulator.stop(when);
       },
     };
   }
@@ -118,7 +118,7 @@ function createOscillatorForTrack(context, track, frequency) {
     osc.type = waveform;
   }
   osc.frequency.value = frequency;
-  return { osc, stop: () => osc.stop() };
+  return { osc, stop: (when) => osc.stop(when) };
 }
 
 function scheduleSynthNote(context, track, trackChain, note, startTime, duration) {
@@ -279,7 +279,6 @@ export class AudioEngine {
     this.playDuration = 0;
     this.loopTimer = null;
     this.previewTimer = null;
-    this.unlockPromise = null;
   }
 
   ensureContext() {
@@ -296,26 +295,19 @@ export class AudioEngine {
     return true;
   }
 
-  unlock() {
+  runWithContext(callback) {
     if (!this.ensureContext()) {
-      return Promise.resolve(false);
+      return false;
     }
-    if (this.context.state === "running") {
-      return Promise.resolve(true);
+    callback();
+    if (this.context.state === "suspended") {
+      this.context.resume().catch(() => {});
     }
-    if (!this.unlockPromise) {
-      this.unlockPromise = this.context
-        .resume()
-        .then(() => {
-          this.unlockPromise = null;
-          return this.context.state === "running";
-        })
-        .catch(() => {
-          this.unlockPromise = null;
-          return false;
-        });
-    }
-    return this.unlockPromise;
+    return true;
+  }
+
+  unlock() {
+    return this.runWithContext(() => {});
   }
 
   playProject(project, { loop = false } = {}) {
@@ -344,10 +336,7 @@ export class AudioEngine {
       }
     };
 
-    this.unlock().then((ready) => {
-      if (!ready) return;
-      schedule();
-    });
+    this.runWithContext(schedule);
   }
 
   stop() {
@@ -378,8 +367,7 @@ export class AudioEngine {
   }
 
   previewNote(track, pitch, duration = 0.4) {
-    this.unlock().then((ready) => {
-      if (!ready) return;
+    this.runWithContext(() => {
       const now = this.context.currentTime + 0.01;
       const tempNote = { pitch, velocity: 0.9 };
       const trackOutput = createTrackOutput(this.context, this.masterGain, track.volume ?? 0.8);
@@ -388,8 +376,7 @@ export class AudioEngine {
   }
 
   previewDrum(track, drum) {
-    this.unlock().then((ready) => {
-      if (!ready) return;
+    this.runWithContext(() => {
       const now = this.context.currentTime + 0.01;
       const trackOutput = createTrackOutput(this.context, this.masterGain, track.volume ?? 0.8);
       scheduleDrumHit(this.context, trackOutput.input, drum, now);
@@ -424,10 +411,7 @@ export class AudioEngine {
       }
     };
 
-    this.unlock().then((ready) => {
-      if (!ready) return;
-      schedule();
-    });
+    this.runWithContext(schedule);
   }
 
   stopPreview() {
