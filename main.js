@@ -51,6 +51,12 @@ let playbackStopTimer = null;
 
 const history = new HistoryManager(project);
 const audioEngine = new AudioEngine();
+const safeClone = (value) => {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value));
+};
 
 const unlockAudio = () => {
   audioEngine.runWithContext(() => {});
@@ -77,7 +83,7 @@ const timeline = new Timeline({
     if (!track) return;
     const source = track.blocks.find((block) => block.id === blockId);
     if (!source) return;
-    const clone = structuredClone(source);
+    const clone = safeClone(source);
     clone.id = Math.random().toString(36).slice(2, 10);
     clone.startBeat = source.startBeat + source.length;
     track.blocks.push(clone);

@@ -183,9 +183,10 @@ export function quantizeProject(project, snap) {
 
 export class HistoryManager {
   constructor(initialState, limit = 100) {
-    this.clone = typeof structuredClone === "function"
-      ? structuredClone
-      : (value) => JSON.parse(JSON.stringify(value));
+    const structuredCloneFn = typeof structuredClone === "function"
+      ? (value) => structuredClone(value)
+      : null;
+    this.clone = structuredCloneFn || ((value) => JSON.parse(JSON.stringify(value)));
     this.stack = [this.clone(initialState)];
     this.index = 0;
     this.limit = limit;
