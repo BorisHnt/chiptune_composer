@@ -53,13 +53,6 @@ const history = new HistoryManager(project);
 const audioEngine = new AudioEngine();
 const safeClone = (value) => JSON.parse(JSON.stringify(value));
 
-const unlockAudio = () => {
-  audioEngine.runWithContext(() => {});
-};
-
-window.addEventListener("pointerdown", unlockAudio, { once: true, capture: true });
-window.addEventListener("touchstart", unlockAudio, { once: true, capture: true });
-window.addEventListener("keydown", unlockAudio, { once: true });
 
 const timeline = new Timeline({
   container: ui.timeline,
@@ -192,7 +185,7 @@ function commitChange(options = {}) {
   if (reRenderEditors && activeBlockId) {
     refreshEditor();
   }
-  if (isPlaying && shouldRestartPlayback) {
+  if (isPlaying && shouldRestartPlayback && typeof restartPlayback === "function") {
     restartPlayback();
   }
 }

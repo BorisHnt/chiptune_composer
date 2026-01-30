@@ -294,11 +294,14 @@ export class AudioEngine {
     if (!this.ensureContext()) {
       return false;
     }
-    callback();
     if (this.context.state === "suspended") {
-      this.context.resume().catch(() => {});
+      this.context
+        .resume()
+        .then(callback)
+        .catch(() => {});
       return false;
     }
+    callback();
     return true;
   }
 
