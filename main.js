@@ -343,6 +343,12 @@ function scheduleStopTimer() {
 ui.playBtn.addEventListener("click", () => {
   if (isPlaying) return;
   isPlaying = true;
+  if (previewEnabled) {
+    previewEnabled = false;
+    ui.previewBtn.setAttribute("aria-pressed", "false");
+    audioEngine.stopPreview();
+    stopPreviewAnimation();
+  }
   const ready = audioEngine.unlock();
   if (!ready) {
     isPlaying = false;

@@ -246,6 +246,32 @@ function createTrackOutput(context, master, volume = 0.8) {
   return { input: trackGain, output: trackGain };
 }
 
+function createBus(context, master, level = 1) {
+  const bus = context.createGain();
+  bus.gain.value = level;
+  bus.connect(master);
+  return bus;
+}
+
+function fadeOutAndDisconnect(node, context) {
+  if (!node || !context) return;
+  const now = context.currentTime;
+  try {
+    node.gain.cancelScheduledValues(now);
+    node.gain.setValueAtTime(node.gain.value, now);
+    node.gain.linearRampToValueAtTime(0.0001, now + 0.02);
+  } catch (error) {
+    // Ignore nodes without gain or schedule errors.
+  }
+  window.setTimeout(() => {
+    try {
+      node.disconnect();
+    } catch (error) {
+      // Ignore if already disconnected.
+    }
+  }, 40);
+}
+
 export function scheduleProject(context, project, options = {}) {
   const { startTime = 0, master = context.destination, ignoreMuteSolo = false } = options;
   const secondsPerBeat = 60 / project.bpm;
@@ -286,6 +312,8 @@ export class AudioEngine {
     this.previewStartTime = 0;
     this.previewDuration = 0;
     this.previewLoop = false;
+    this.playBus = null;
+    this.previewBus = null;
   }
 
   ensureContext() {
@@ -324,23 +352,28 @@ export class AudioEngine {
       const secondsPerBeat = 60 / project.bpm;
       const totalBeats = getProjectEndBeat(project);
       const duration = totalBeats * secondsPerBeat;
-      const startTime = this.context.currentTime + 0.05;
+      const startTime = this.context.currentTime + 0.08;
 
-      scheduleProject(this.context, project, { startTime, master: this.masterGain });
+      this.playBus = createBus(this.context, this.masterGain, 1);
 
       this.isPlaying = true;
       this.loop = loop;
       this.playStartTime = startTime;
       this.playDuration = duration;
 
-      if (loop) {
-        this.loopTimer = window.setInterval(() => {
-          scheduleProject(this.context, project, {
-            startTime: this.context.currentTime + 0.05,
-            master: this.masterGain,
-          });
-        }, duration * 1000);
-      }
+      const leadTime = Math.min(0.2, duration / 3);
+      const scheduleLoop = (loopStart) => {
+        scheduleProject(this.context, project, { startTime: loopStart, master: this.playBus });
+        if (!this.loop) return;
+        const nextStart = loopStart + duration;
+        const delay = Math.max(0, (nextStart - this.context.currentTime - leadTime) * 1000);
+        this.loopTimer = window.setTimeout(() => {
+          if (!this.isPlaying || !this.loop) return;
+          scheduleLoop(nextStart);
+        }, delay);
+      };
+
+      scheduleLoop(startTime);
     };
 
     this.runWithContext(schedule);
@@ -348,12 +381,16 @@ export class AudioEngine {
 
   stop() {
     if (this.loopTimer) {
-      clearInterval(this.loopTimer);
+      clearTimeout(this.loopTimer);
       this.loopTimer = null;
     }
     if (this.previewTimer) {
-      clearInterval(this.previewTimer);
+      clearTimeout(this.previewTimer);
       this.previewTimer = null;
+    }
+    if (this.playBus) {
+      fadeOutAndDisconnect(this.playBus, this.context);
+      this.playBus = null;
     }
     this.isPlaying = false;
   }
@@ -377,7 +414,8 @@ export class AudioEngine {
     this.runWithContext(() => {
       const now = this.context.currentTime + 0.01;
       const tempNote = { pitch, velocity: 0.9 };
-      const trackOutput = createTrackOutput(this.context, this.masterGain, track.volume ?? 0.8);
+      const master = this.previewBus || this.masterGain;
+      const trackOutput = createTrackOutput(this.context, master, track.volume ?? 0.8);
       scheduleSynthNote(this.context, track, trackOutput.input, tempNote, now, duration);
     });
   }
@@ -385,7 +423,8 @@ export class AudioEngine {
   previewDrum(track, drum) {
     this.runWithContext(() => {
       const now = this.context.currentTime + 0.01;
-      const trackOutput = createTrackOutput(this.context, this.masterGain, track.volume ?? 0.8);
+      const master = this.previewBus || this.masterGain;
+      const trackOutput = createTrackOutput(this.context, master, track.volume ?? 0.8);
       scheduleDrumHit(this.context, trackOutput.input, drum, now);
     });
   }
@@ -395,29 +434,41 @@ export class AudioEngine {
     const schedule = () => {
       const secondsPerBeat = 60 / bpm;
       const loopDuration = block.length * secondsPerBeat;
+      const startTime = this.context.currentTime + 0.08;
 
-      const scheduleOnce = () => {
-        const startTime = this.context.currentTime + 0.05;
-        this.previewStartTime = startTime;
-        this.previewDuration = loopDuration;
-        this.previewLoop = loop;
-        const trackOutput = createTrackOutput(this.context, this.masterGain, track.volume ?? 0.8);
+      this.previewStartTime = startTime;
+      this.previewDuration = loopDuration;
+      this.previewLoop = loop;
+      this.previewBus = createBus(this.context, this.masterGain, 1);
+
+      const scheduleOnce = (loopStart) => {
+        const trackOutput = createTrackOutput(this.context, this.previewBus, track.volume ?? 0.8);
         if (track.type === "synth") {
           block.notes.forEach((note) => {
-            const noteStart = startTime + note.start * secondsPerBeat;
+            const noteStart = loopStart + note.start * secondsPerBeat;
             const duration = note.duration * secondsPerBeat;
             scheduleSynthNote(this.context, track, trackOutput.input, note, noteStart, duration);
           });
         } else {
           const previewBlock = { ...block, startBeat: 0 };
-          scheduleDrumPattern(this.context, trackOutput.input, previewBlock, secondsPerBeat, startTime);
+          scheduleDrumPattern(this.context, trackOutput.input, previewBlock, secondsPerBeat, loopStart);
         }
       };
 
-      scheduleOnce();
-
       if (loop) {
-        this.previewTimer = window.setInterval(scheduleOnce, loopDuration * 1000);
+        const leadTime = Math.min(0.2, loopDuration / 3);
+        const scheduleLoop = (loopStart) => {
+          scheduleOnce(loopStart);
+          const nextStart = loopStart + loopDuration;
+          const delay = Math.max(0, (nextStart - this.context.currentTime - leadTime) * 1000);
+          this.previewTimer = window.setTimeout(() => {
+            if (!this.previewLoop) return;
+            scheduleLoop(nextStart);
+          }, delay);
+        };
+        scheduleLoop(startTime);
+      } else {
+        scheduleOnce(startTime);
       }
     };
 
@@ -426,8 +477,12 @@ export class AudioEngine {
 
   stopPreview() {
     if (this.previewTimer) {
-      clearInterval(this.previewTimer);
+      clearTimeout(this.previewTimer);
       this.previewTimer = null;
+    }
+    if (this.previewBus) {
+      fadeOutAndDisconnect(this.previewBus, this.context);
+      this.previewBus = null;
     }
     this.previewStartTime = 0;
     this.previewDuration = 0;
