@@ -515,6 +515,24 @@ main {
   border-bottom: var(--border-soft);
   padding: 4px 6px;
   font-size: 0.7rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drum-label-name {
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  width: 60px;
+}
+
+.drum-volume {
+  width: 54px;
 }
 
 .drum-grid-wrap {

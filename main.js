@@ -6,6 +6,7 @@ import {
   quantizeProject,
   HistoryManager,
   normalizeProject,
+  getDrumRowsForConsole,
 } from "./modules/dataModel.js";
 import { AudioEngine } from "./modules/audioEngine.js";
 import { Timeline } from "./modules/timeline.js";
@@ -26,6 +27,7 @@ const ui = {
   redoBtn: document.getElementById("redoBtn"),
   saveBtn: document.getElementById("saveBtn"),
   loadBtn: document.getElementById("loadBtn"),
+  clearCacheBtn: document.getElementById("clearCacheBtn"),
   loadInput: document.getElementById("loadInput"),
   timeline: document.getElementById("timeline"),
   timeInfo: document.getElementById("timeInfo"),
@@ -37,7 +39,42 @@ const ui = {
   drumEditor: document.getElementById("drumEditor"),
 };
 
-let project = normalizeProject(createDefaultProject());
+const STORAGE_KEY = "chiptune_composer_autosave_v1";
+let cacheSaveTimer = null;
+
+function loadProjectFromCache() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return normalizeProject(parsed);
+  } catch (error) {
+    console.warn("Failed to load cached project", error);
+    localStorage.removeItem(STORAGE_KEY);
+    return null;
+  }
+}
+
+function saveProjectToCache() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
+  } catch (error) {
+    console.warn("Failed to save project cache", error);
+  }
+}
+
+function scheduleCacheSave() {
+  if (cacheSaveTimer) {
+    clearTimeout(cacheSaveTimer);
+  }
+  cacheSaveTimer = window.setTimeout(() => {
+    saveProjectToCache();
+    cacheSaveTimer = null;
+  }, 250);
+}
+
+const cachedProject = loadProjectFromCache();
+let project = cachedProject || normalizeProject(createDefaultProject());
 let snap = parseFloat(ui.snapSelect.value);
 let zoom = 72;
 let loopEnabled = false;
@@ -51,6 +88,9 @@ let playbackStopTimer = null;
 let previewAnimationFrame = null;
 
 const history = new HistoryManager(project);
+if (cachedProject) {
+  history.reset(project);
+}
 const audioEngine = new AudioEngine();
 const safeClone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -94,7 +134,7 @@ const timeline = new Timeline({
     if (!track) return;
     const newBlock = createBlock({ startBeat: cursorBeat, length: 4, type: track.type });
     if (track.type === "drums") {
-      ensureDrumPattern(newBlock);
+      ensureDrumPattern(newBlock, 16, getDrumRowsForConsole(track.console));
     }
     track.blocks.push(newBlock);
     commitChange();
@@ -102,7 +142,15 @@ const timeline = new Timeline({
   onTrackChange: (trackId, changes) => {
     const track = project.tracks.find((item) => item.id === trackId);
     if (!track) return;
+    const previousConsole = track.console;
     Object.assign(track, changes);
+    if (track.type === "drums" && changes.console && changes.console !== previousConsole) {
+      const rows = getDrumRowsForConsole(track.console);
+      track.blocks.forEach((block) => {
+        const steps = Number.isFinite(block.pattern?.steps) ? block.pattern.steps : 16;
+        ensureDrumPattern(block, steps, rows);
+      });
+    }
     commitChange({ reRenderEditors: track.id === activeTrackId });
   },
   onCursorChange: (beat) => {
@@ -151,12 +199,12 @@ const drumEditor = new DrumEditor({
       restartPreview();
     }
   },
-  onPreview: (drum) => {
+  onPreview: (drum, level) => {
     const track = getActiveTrack();
     if (!track) return;
     const ready = audioEngine.unlock();
     if (!ready) return;
-    audioEngine.previewDrum(track, drum);
+    audioEngine.previewDrum(track, drum, level);
   },
 });
 
@@ -183,6 +231,7 @@ function commitChange(options = {}) {
   } = options;
   if (record) {
     history.push(project);
+    scheduleCacheSave();
   }
   if (reRenderTimeline) {
     timeline.setProject(project);
@@ -197,6 +246,7 @@ function commitChange(options = {}) {
 
 function applyState(nextState) {
   project = nextState;
+  scheduleCacheSave();
   ui.bpmInput.value = project.bpm;
   timeline.setProject(project);
   if (activeBlockId) {
@@ -452,6 +502,12 @@ ui.loadInput.addEventListener("change", async () => {
   ui.loadInput.value = "";
 });
 
+ui.clearCacheBtn.addEventListener("click", () => {
+  const confirmClear = window.confirm("Clear cached project data?");
+  if (!confirmClear) return;
+  localStorage.removeItem(STORAGE_KEY);
+});
+
 ui.exportBtn.addEventListener("click", async () => {
   await exportProjectToWav(project);
 });
@@ -493,6 +549,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("beforeunload", () => {
+  saveProjectToCache();
   audioEngine.stop();
 });
 

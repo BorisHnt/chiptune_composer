@@ -1,4 +1,11 @@
-export const DEFAULT_DRUM_ROWS = ["kick", "snare", "hat", "perc"];
+export const DRUM_KITS = {
+  NES: ["kick", "snare", "hat", "perc"],
+  Atari: ["kick", "snare", "hat", "noise"],
+  C64: ["kick", "snare", "hat", "clap", "tom"],
+  Sega: ["kick", "snare", "hat", "fm-tom", "cowbell"],
+};
+
+export const DEFAULT_DRUM_ROWS = DRUM_KITS.NES;
 
 export const CONSOLE_WAVES = {
   NES: ["pulse12", "pulse25", "pulse50"],
@@ -74,7 +81,7 @@ function normalizeNote(note) {
   };
 }
 
-function normalizeBlocks(blocks, type) {
+function normalizeBlocks(blocks, type, drumRows) {
   if (!Array.isArray(blocks)) return [];
   return blocks.map((block) => {
     const safe = isObject(block) ? block : {};
@@ -88,7 +95,7 @@ function normalizeBlocks(blocks, type) {
       normalized.pattern = Array.isArray(safe.pattern) ? safe.pattern : [];
     } else {
       const steps = Number.isFinite(safe.pattern?.steps) ? safe.pattern.steps : 16;
-      const rows = Array.isArray(safe.pattern?.rows) ? safe.pattern.rows : DEFAULT_DRUM_ROWS;
+      const rows = Array.isArray(drumRows) ? drumRows : DEFAULT_DRUM_ROWS;
       normalized.pattern = safe.pattern || [];
       ensureDrumPattern(normalized, steps, rows);
     }
@@ -116,7 +123,7 @@ function normalizeTrack(track, index) {
     octave: Number.isFinite(safe.octave) ? clamp(safe.octave, -3, 3) : base.octave,
     mute: Boolean(safe.mute),
     solo: Boolean(safe.solo),
-    blocks: normalizeBlocks(safe.blocks, type),
+    blocks: normalizeBlocks(safe.blocks, type, getDrumRowsForConsole(consoleName)),
   };
 }
 
@@ -139,6 +146,10 @@ export function ensureDrumPattern(block, steps = 16, rows = DEFAULT_DRUM_ROWS) {
       steps,
       rows: [...rows],
       grid: rows.map(() => Array.from({ length: steps }, () => false)),
+      volumes: rows.reduce((acc, row) => {
+        acc[row] = 0.9;
+        return acc;
+      }, {}),
     };
   }
 
@@ -150,7 +161,33 @@ export function ensureDrumPattern(block, steps = 16, rows = DEFAULT_DRUM_ROWS) {
     });
   }
 
+  if (!block.pattern.volumes) {
+    block.pattern.volumes = {};
+  }
+
+  if (rows && rows.length) {
+    const previousRows = block.pattern.rows || [];
+    const previousGrid = block.pattern.grid || [];
+    const rowMap = new Map();
+    previousRows.forEach((rowName, index) => {
+      rowMap.set(rowName, previousGrid[index] || []);
+    });
+
+    block.pattern.rows = [...rows];
+    block.pattern.grid = rows.map((rowName) => rowMap.get(rowName) || Array.from({ length: steps }, () => false));
+  }
+
+  rows.forEach((rowName) => {
+    if (!Number.isFinite(block.pattern.volumes[rowName])) {
+      block.pattern.volumes[rowName] = 0.9;
+    }
+  });
+
   return block.pattern;
+}
+
+export function getDrumRowsForConsole(consoleName) {
+  return DRUM_KITS[consoleName] ? [...DRUM_KITS[consoleName]] : [...DEFAULT_DRUM_ROWS];
 }
 
 export function getProjectEndBeat(project) {

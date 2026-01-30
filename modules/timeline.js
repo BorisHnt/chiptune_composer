@@ -168,8 +168,9 @@ export class Timeline {
       consoleSelect.appendChild(option);
     });
 
-    const waveformSelect = document.createElement("select");
+    let waveformSelect = null;
     const updateWaveforms = () => {
+      if (!waveformSelect) return;
       waveformSelect.innerHTML = "";
       (CONSOLE_WAVES[consoleSelect.value] || []).forEach((wave) => {
         const option = document.createElement("option");
@@ -179,18 +180,28 @@ export class Timeline {
         waveformSelect.appendChild(option);
       });
     };
-    updateWaveforms();
+
+    if (track.type !== "drums") {
+      waveformSelect = document.createElement("select");
+      updateWaveforms();
+    }
 
     consoleSelect.addEventListener("change", () => {
       const consoleValue = consoleSelect.value;
+      if (track.type === "drums") {
+        this.onTrackChange?.(track.id, { console: consoleValue });
+        return;
+      }
       const waveOptions = CONSOLE_WAVES[consoleValue] || [];
       const waveform = waveOptions[0] || "square";
       this.onTrackChange?.(track.id, { console: consoleValue, waveform });
     });
 
-    waveformSelect.addEventListener("change", () => {
-      this.onTrackChange?.(track.id, { waveform: waveformSelect.value });
-    });
+    if (waveformSelect) {
+      waveformSelect.addEventListener("change", () => {
+        this.onTrackChange?.(track.id, { waveform: waveformSelect.value });
+      });
+    }
 
     const volumeInput = document.createElement("input");
     volumeInput.type = "range";
@@ -240,8 +251,10 @@ export class Timeline {
       this.onTrackChange?.(track.id, { solo: !track.solo });
     });
 
-    controls.appendChild(this.wrapControl("Console", consoleSelect));
-    controls.appendChild(this.wrapControl("Wave", waveformSelect));
+    controls.appendChild(this.wrapControl(track.type === "drums" ? "Kit" : "Console", consoleSelect));
+    if (waveformSelect) {
+      controls.appendChild(this.wrapControl("Wave", waveformSelect));
+    }
     controls.appendChild(this.wrapControl("Vol", volumeInput));
     controls.appendChild(this.wrapControl("Pan", panInput));
     controls.appendChild(this.wrapControl("Oct", octaveInput));

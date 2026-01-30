@@ -158,7 +158,7 @@ function scheduleSynthNote(context, track, trackChain, note, startTime, duration
   voice.stop(startTime + duration + DEFAULT_ADSR.release + 0.1);
 }
 
-function scheduleNoiseBurst(context, trackChain, startTime, duration, filterType = "highpass") {
+function scheduleNoiseBurst(context, trackChain, startTime, duration, filterType = "highpass", level = 0.9) {
   const noise = context.createBufferSource();
   noise.buffer = getNoiseBuffer(context);
 
@@ -173,7 +173,7 @@ function scheduleNoiseBurst(context, trackChain, startTime, duration, filterType
   filter.connect(gain);
   gain.connect(trackChain);
 
-  applyEnvelope(gain, startTime, duration, 0.9, {
+  applyEnvelope(gain, startTime, duration, level, {
     attack: 0.001,
     decay: 0.03,
     sustain: 0.2,
@@ -184,7 +184,7 @@ function scheduleNoiseBurst(context, trackChain, startTime, duration, filterType
   noise.stop(startTime + duration + 0.2);
 }
 
-function scheduleDrumHit(context, trackChain, drum, startTime) {
+function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9) {
   const duration = 0.2;
   if (drum === "kick") {
     const osc = context.createOscillator();
@@ -192,7 +192,7 @@ function scheduleDrumHit(context, trackChain, drum, startTime) {
     osc.type = "sine";
     osc.frequency.setValueAtTime(140, startTime);
     osc.frequency.exponentialRampToValueAtTime(50, startTime + 0.12);
-    gain.gain.setValueAtTime(0.9, startTime);
+    gain.gain.setValueAtTime(level, startTime);
     gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.18);
     osc.connect(gain);
     gain.connect(trackChain);
@@ -202,12 +202,87 @@ function scheduleDrumHit(context, trackChain, drum, startTime) {
   }
 
   if (drum === "snare") {
-    scheduleNoiseBurst(context, trackChain, startTime, 0.18, "bandpass");
+    scheduleNoiseBurst(context, trackChain, startTime, 0.18, "bandpass", level);
     return;
   }
 
   if (drum === "hat") {
-    scheduleNoiseBurst(context, trackChain, startTime, 0.1, "highpass");
+    scheduleNoiseBurst(context, trackChain, startTime, 0.1, "highpass", level * 0.8);
+    return;
+  }
+
+  if (drum === "openhat") {
+    scheduleNoiseBurst(context, trackChain, startTime, 0.3, "highpass", level * 0.7);
+    return;
+  }
+
+  if (drum === "clap") {
+    scheduleNoiseBurst(context, trackChain, startTime, 0.12, "bandpass", level * 0.6);
+    scheduleNoiseBurst(context, trackChain, startTime + 0.03, 0.12, "bandpass", level * 0.5);
+    scheduleNoiseBurst(context, trackChain, startTime + 0.06, 0.12, "bandpass", level * 0.4);
+    return;
+  }
+
+  if (drum === "tom") {
+    const osc = context.createOscillator();
+    const gain = context.createGain();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(180, startTime);
+    osc.frequency.exponentialRampToValueAtTime(90, startTime + 0.18);
+    gain.gain.setValueAtTime(level * 0.7, startTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.18);
+    osc.connect(gain);
+    gain.connect(trackChain);
+    osc.start(startTime);
+    osc.stop(startTime + 0.22);
+    return;
+  }
+
+  if (drum === "noise") {
+    scheduleNoiseBurst(context, trackChain, startTime, 0.2, "highpass", level * 0.7);
+    return;
+  }
+
+  if (drum === "fm-tom") {
+    const carrier = context.createOscillator();
+    const modulator = context.createOscillator();
+    const modGain = context.createGain();
+    const gain = context.createGain();
+    carrier.type = "sine";
+    modulator.type = "sine";
+    carrier.frequency.setValueAtTime(150, startTime);
+    modulator.frequency.setValueAtTime(300, startTime);
+    modGain.gain.setValueAtTime(90, startTime);
+    modulator.connect(modGain);
+    modGain.connect(carrier.frequency);
+    gain.gain.setValueAtTime(level * 0.6, startTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.18);
+    carrier.connect(gain);
+    gain.connect(trackChain);
+    carrier.start(startTime);
+    modulator.start(startTime);
+    carrier.stop(startTime + 0.22);
+    modulator.stop(startTime + 0.22);
+    return;
+  }
+
+  if (drum === "cowbell") {
+    const osc1 = context.createOscillator();
+    const osc2 = context.createOscillator();
+    const gain = context.createGain();
+    osc1.type = "square";
+    osc2.type = "square";
+    osc1.frequency.setValueAtTime(540, startTime);
+    osc2.frequency.setValueAtTime(810, startTime);
+    gain.gain.setValueAtTime(level * 0.5, startTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.18);
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(trackChain);
+    osc1.start(startTime);
+    osc2.start(startTime);
+    osc1.stop(startTime + 0.2);
+    osc2.stop(startTime + 0.2);
     return;
   }
 
@@ -215,7 +290,7 @@ function scheduleDrumHit(context, trackChain, drum, startTime) {
   const gain = context.createGain();
   osc.type = "triangle";
   osc.frequency.value = 320;
-  gain.gain.setValueAtTime(0.4, startTime);
+  gain.gain.setValueAtTime(level * 0.5, startTime);
   gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.12);
   osc.connect(gain);
   gain.connect(trackChain);
@@ -234,7 +309,8 @@ function scheduleDrumPattern(context, trackChain, block, secondsPerBeat, startOf
       if (!active) return;
       const time = startOffset + (block.startBeat + step * stepBeats) * secondsPerBeat;
       const drum = pattern.rows[rowIndex];
-      scheduleDrumHit(context, trackChain, drum, time);
+      const volume = Number.isFinite(pattern.volumes?.[drum]) ? pattern.volumes[drum] : 0.9;
+      scheduleDrumHit(context, trackChain, drum, time, volume);
     });
   });
 }
@@ -420,12 +496,12 @@ export class AudioEngine {
     });
   }
 
-  previewDrum(track, drum) {
+  previewDrum(track, drum, level = 0.9) {
     this.runWithContext(() => {
       const now = this.context.currentTime + 0.01;
       const master = this.previewBus || this.masterGain;
       const trackOutput = createTrackOutput(this.context, master, track.volume ?? 0.8);
-      scheduleDrumHit(this.context, trackOutput.input, drum, now);
+      scheduleDrumHit(this.context, trackOutput.input, drum, now, level);
     });
   }
 

@@ -1,4 +1,4 @@
-import { DEFAULT_DRUM_ROWS, ensureDrumPattern } from "./dataModel.js";
+import { DEFAULT_DRUM_ROWS, ensureDrumPattern, getDrumRowsForConsole } from "./dataModel.js";
 
 export class DrumEditor {
   constructor({ container, zoom = 48, onPatternChange, onPreview }) {
@@ -49,7 +49,7 @@ export class DrumEditor {
 
     stepSelect.addEventListener("change", () => {
       this.steps = parseInt(stepSelect.value, 10);
-      const rows = (this.block.pattern?.rows || DEFAULT_DRUM_ROWS).slice();
+      const rows = getDrumRowsForConsole(this.track?.console) || DEFAULT_DRUM_ROWS;
       const pattern = ensureDrumPattern(this.block, this.steps, rows);
       this.onPatternChange?.(pattern, { commit: true });
       this.render();
@@ -63,13 +63,37 @@ export class DrumEditor {
     const labels = document.createElement("div");
     labels.className = "drum-labels";
 
-    const rows = (this.block.pattern?.rows || DEFAULT_DRUM_ROWS).slice();
+    const rows = getDrumRowsForConsole(this.track?.console) || DEFAULT_DRUM_ROWS;
     const pattern = ensureDrumPattern(this.block, this.steps, rows);
 
     rows.forEach((row) => {
       const label = document.createElement("div");
       label.className = "drum-label";
-      label.textContent = row.toUpperCase();
+
+      const name = document.createElement("button");
+      name.type = "button";
+      name.className = "drum-label-name";
+      name.textContent = row.toUpperCase();
+      name.addEventListener("click", () => {
+        const level = Number.isFinite(pattern.volumes?.[row]) ? pattern.volumes[row] : 0.9;
+        this.onPreview?.(row, level);
+      });
+
+      const volume = document.createElement("input");
+      volume.type = "range";
+      volume.min = 0;
+      volume.max = 1;
+      volume.step = 0.01;
+      volume.className = "drum-volume";
+      volume.value = Number.isFinite(pattern.volumes?.[row]) ? pattern.volumes[row] : 0.9;
+      volume.addEventListener("input", () => {
+        pattern.volumes = pattern.volumes || {};
+        pattern.volumes[row] = parseFloat(volume.value);
+        this.onPatternChange?.(pattern, { commit: true });
+      });
+
+      label.appendChild(name);
+      label.appendChild(volume);
       labels.appendChild(label);
     });
 
@@ -94,7 +118,9 @@ export class DrumEditor {
         cell.addEventListener("click", () => {
           row[stepIndex] = !row[stepIndex];
           cell.classList.toggle("active", row[stepIndex]);
-          this.onPreview?.(rows[rowIndex]);
+          const rowName = rows[rowIndex];
+          const level = Number.isFinite(pattern.volumes?.[rowName]) ? pattern.volumes[rowName] : 0.9;
+          this.onPreview?.(rowName, level);
           this.onPatternChange?.(pattern, { commit: true });
         });
 
