@@ -426,6 +426,10 @@ ui.previewBtn.addEventListener("click", () => {
 
 ui.closeEditorBtn.addEventListener("click", closeEditor);
 
+ui.editorOverlay.addEventListener("pointerdown", () => {
+  audioEngine.runWithContext(() => {});
+});
+
 window.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();

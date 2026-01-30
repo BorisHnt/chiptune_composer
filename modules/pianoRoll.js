@@ -11,6 +11,7 @@ const getPoint = (event) => {
 const addStartListener = (element, handler) => {
   if (SUPPORTS_POINTER) {
     element.addEventListener("pointerdown", handler);
+    element.addEventListener("contextmenu", (event) => event.preventDefault());
   } else {
     element.addEventListener("mousedown", (event) => {
       if (event.button !== 0) return;
@@ -74,6 +75,8 @@ export class PianoRoll {
     this.maxPitch = 108;
     this.rowHeight = 24;
     this.noteElements = new Map();
+    this.scrollLeft = 0;
+    this.scrollTop = 0;
   }
 
   setSnap(snap) {
@@ -108,6 +111,12 @@ export class PianoRoll {
     if (!this.block) {
       this.container.innerHTML = "";
       return;
+    }
+
+    const previousWrap = this.container.querySelector(".piano-grid-wrap");
+    if (previousWrap) {
+      this.scrollLeft = previousWrap.scrollLeft;
+      this.scrollTop = previousWrap.scrollTop;
     }
 
     this.container.innerHTML = "";
@@ -149,7 +158,13 @@ export class PianoRoll {
 
     gridWrap.addEventListener("scroll", () => {
       keys.scrollTop = gridWrap.scrollTop;
+      this.scrollLeft = gridWrap.scrollLeft;
+      this.scrollTop = gridWrap.scrollTop;
     });
+
+    gridWrap.scrollLeft = this.scrollLeft;
+    gridWrap.scrollTop = this.scrollTop;
+    keys.scrollTop = this.scrollTop;
 
     this.noteElements.clear();
 
@@ -214,6 +229,12 @@ export class PianoRoll {
     addStartListener(noteEl, (event) => {
       event.stopPropagation?.();
       event.preventDefault?.();
+      if (event.button === 2) {
+        this.block.notes = this.block.notes.filter((item) => item !== note);
+        this.onNoteChange?.(this.block.notes, { commit: true });
+        this.render();
+        return;
+      }
       this.onPreviewNote?.(note.pitch, this.track);
       if (event.target === handle) {
         this.attachResize(note, noteEl, event);
@@ -223,6 +244,14 @@ export class PianoRoll {
     });
 
     noteEl.addEventListener("dblclick", (event) => {
+      event.stopPropagation();
+      this.block.notes = this.block.notes.filter((item) => item !== note);
+      this.onNoteChange?.(this.block.notes, { commit: true });
+      this.render();
+    });
+
+    noteEl.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
       event.stopPropagation();
       this.block.notes = this.block.notes.filter((item) => item !== note);
       this.onNoteChange?.(this.block.notes, { commit: true });
