@@ -122,8 +122,12 @@ function createOscillatorForTrack(context, track, frequency) {
 }
 
 function scheduleSynthNote(context, track, trackChain, note, startTime, duration) {
-  const frequency = midiToFrequency(note.pitch + track.octave * 12);
+  const midi = Number(note.pitch) + Number(track.octave || 0) * 12;
+  const frequency = midiToFrequency(midi);
   if (!Number.isFinite(frequency)) {
+    return;
+  }
+  if (!Number.isFinite(startTime) || !Number.isFinite(duration) || duration <= 0) {
     return;
   }
   const velocity = Number.isFinite(note.velocity) ? note.velocity : 0.9;
@@ -279,6 +283,9 @@ export class AudioEngine {
     this.playDuration = 0;
     this.loopTimer = null;
     this.previewTimer = null;
+    this.previewStartTime = 0;
+    this.previewDuration = 0;
+    this.previewLoop = false;
   }
 
   ensureContext() {
@@ -299,10 +306,10 @@ export class AudioEngine {
     if (!this.ensureContext()) {
       return false;
     }
-    callback();
     if (this.context.state === "suspended") {
       this.context.resume().catch(() => {});
     }
+    callback();
     return true;
   }
 
@@ -391,6 +398,9 @@ export class AudioEngine {
 
       const scheduleOnce = () => {
         const startTime = this.context.currentTime + 0.05;
+        this.previewStartTime = startTime;
+        this.previewDuration = loopDuration;
+        this.previewLoop = loop;
         const trackOutput = createTrackOutput(this.context, this.masterGain, track.volume ?? 0.8);
         if (track.type === "synth") {
           block.notes.forEach((note) => {
@@ -419,5 +429,22 @@ export class AudioEngine {
       clearInterval(this.previewTimer);
       this.previewTimer = null;
     }
+    this.previewStartTime = 0;
+    this.previewDuration = 0;
+    this.previewLoop = false;
+  }
+
+  getPreviewBeat(bpm) {
+    if (!this.context || !this.previewStartTime) {
+      return 0;
+    }
+    const secondsPerBeat = 60 / bpm;
+    const elapsed = this.context.currentTime - this.previewStartTime;
+    if (elapsed < 0) return 0;
+    let beat = elapsed / secondsPerBeat;
+    if (this.previewLoop && this.previewDuration > 0) {
+      beat = beat % (this.previewDuration / secondsPerBeat);
+    }
+    return beat;
   }
 }

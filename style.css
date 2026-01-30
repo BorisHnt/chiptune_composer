@@ -436,6 +436,17 @@ main {
     );
 }
 
+.piano-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-rose);
+  opacity: 0.8;
+  pointer-events: none;
+  z-index: 4;
+}
+
 .piano-notes {
   position: absolute;
   top: 0;

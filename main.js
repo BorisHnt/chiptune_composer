@@ -48,6 +48,7 @@ let activeBlockId = null;
 let previewEnabled = false;
 let animationFrame = null;
 let playbackStopTimer = null;
+let previewAnimationFrame = null;
 
 const history = new HistoryManager(project);
 const audioEngine = new AudioEngine();
@@ -130,6 +131,8 @@ const pianoRoll = new PianoRoll({
   onPreviewNote: (pitch, trackOverride) => {
     const track = trackOverride || getActiveTrack() || pianoRoll.track;
     if (!track) return;
+    const ready = audioEngine.unlock();
+    if (!ready) return;
     audioEngine.previewNote(track, pitch);
   },
 });
@@ -151,6 +154,8 @@ const drumEditor = new DrumEditor({
   onPreview: (drum) => {
     const track = getActiveTrack();
     if (!track) return;
+    const ready = audioEngine.unlock();
+    if (!ready) return;
     audioEngine.previewDrum(track, drum);
   },
 });
@@ -229,6 +234,7 @@ function closeEditor() {
   activeBlockId = null;
   previewEnabled = false;
   audioEngine.stopPreview();
+  stopPreviewAnimation();
   ui.previewBtn.setAttribute("aria-pressed", "false");
   ui.editorOverlay.classList.add("hidden");
 }
@@ -258,6 +264,8 @@ function refreshEditor() {
 
   if (previewEnabled) {
     restartPreview();
+  } else {
+    stopPreviewAnimation();
   }
 }
 
@@ -266,6 +274,29 @@ function restartPreview() {
   const block = getActiveBlock() || pianoRoll.block;
   if (!track || !block) return;
   audioEngine.previewBlock(track, block, project.bpm, { loop: previewEnabled });
+  pianoRoll.setPlayhead(0);
+  startPreviewAnimation();
+}
+
+function startPreviewAnimation() {
+  if (previewAnimationFrame) {
+    window.cancelAnimationFrame(previewAnimationFrame);
+  }
+  const tickPreview = () => {
+    if (!previewEnabled) return;
+    const beat = audioEngine.getPreviewBeat(project.bpm);
+    pianoRoll.setPlayhead(beat);
+    previewAnimationFrame = window.requestAnimationFrame(tickPreview);
+  };
+  previewAnimationFrame = window.requestAnimationFrame(tickPreview);
+}
+
+function stopPreviewAnimation() {
+  if (previewAnimationFrame) {
+    window.cancelAnimationFrame(previewAnimationFrame);
+    previewAnimationFrame = null;
+  }
+  pianoRoll.setPlayhead(0);
 }
 
 function getActiveTrack() {
@@ -432,6 +463,7 @@ ui.previewBtn.addEventListener("click", () => {
     restartPreview();
   } else {
     audioEngine.stopPreview();
+    stopPreviewAnimation();
   }
 });
 

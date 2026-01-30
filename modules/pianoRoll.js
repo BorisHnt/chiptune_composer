@@ -77,6 +77,7 @@ export class PianoRoll {
     this.noteElements = new Map();
     this.scrollLeft = 0;
     this.scrollTop = 0;
+    this.playheadEl = null;
   }
 
   setSnap(snap) {
@@ -150,7 +151,12 @@ export class PianoRoll {
     const notesLayer = document.createElement("div");
     notesLayer.className = "piano-notes";
 
+    const playhead = document.createElement("div");
+    playhead.className = "piano-playhead";
+    this.playheadEl = playhead;
+
     grid.appendChild(notesLayer);
+    grid.appendChild(playhead);
     gridWrap.appendChild(grid);
 
     this.container.appendChild(keys);
@@ -207,6 +213,12 @@ export class PianoRoll {
     };
 
     addStartListener(gridWrap, handlePointer);
+  }
+
+  setPlayhead(beat) {
+    if (!this.playheadEl) return;
+    const clamped = Math.max(0, beat || 0);
+    this.playheadEl.style.left = `${this.beatToPx(clamped)}px`;
   }
 
   findNoteAt(pitch, start) {
