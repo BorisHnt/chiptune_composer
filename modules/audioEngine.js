@@ -267,35 +267,45 @@ export class AudioEngine {
       this.masterGain.gain.value = 0.9;
       this.masterGain.connect(this.context.destination);
     }
+  }
+
+  runWithContext(callback) {
+    this.ensureContext();
     if (this.context.state === "suspended") {
-      this.context.resume().catch(() => {});
+      this.context.resume().then(callback).catch(() => {});
+      return false;
     }
+    callback();
+    return true;
   }
 
   playProject(project, { loop = false } = {}) {
     this.stop();
-    this.ensureContext();
 
-    const secondsPerBeat = 60 / project.bpm;
-    const totalBeats = getProjectEndBeat(project);
-    const duration = totalBeats * secondsPerBeat;
-    const startTime = this.context.currentTime + 0.05;
+    const schedule = () => {
+      const secondsPerBeat = 60 / project.bpm;
+      const totalBeats = getProjectEndBeat(project);
+      const duration = totalBeats * secondsPerBeat;
+      const startTime = this.context.currentTime + 0.05;
 
-    scheduleProject(this.context, project, { startTime, master: this.masterGain });
+      scheduleProject(this.context, project, { startTime, master: this.masterGain });
 
-    this.isPlaying = true;
-    this.loop = loop;
-    this.playStartTime = startTime;
-    this.playDuration = duration;
+      this.isPlaying = true;
+      this.loop = loop;
+      this.playStartTime = startTime;
+      this.playDuration = duration;
 
-    if (loop) {
-      this.loopTimer = window.setInterval(() => {
-        scheduleProject(this.context, project, {
-          startTime: this.context.currentTime + 0.05,
-          master: this.masterGain,
-        });
-      }, duration * 1000);
-    }
+      if (loop) {
+        this.loopTimer = window.setInterval(() => {
+          scheduleProject(this.context, project, {
+            startTime: this.context.currentTime + 0.05,
+            master: this.masterGain,
+          });
+        }, duration * 1000);
+      }
+    };
+
+    this.runWithContext(schedule);
   }
 
   stop() {
@@ -326,62 +336,66 @@ export class AudioEngine {
   }
 
   previewNote(track, pitch, duration = 0.4) {
-    this.ensureContext();
-    const now = this.context.currentTime + 0.01;
-    const tempNote = { pitch, velocity: 0.9 };
-    const trackGain = this.context.createGain();
-    const trackPan = this.context.createStereoPanner();
-    trackGain.gain.value = track.volume ?? 0.8;
-    trackPan.pan.value = track.pan ?? 0;
-    trackGain.connect(trackPan);
-    trackPan.connect(this.masterGain);
-    scheduleSynthNote(this.context, track, trackGain, tempNote, now, duration);
-  }
-
-  previewDrum(track, drum) {
-    this.ensureContext();
-    const now = this.context.currentTime + 0.01;
-    const trackGain = this.context.createGain();
-    const trackPan = this.context.createStereoPanner();
-    trackGain.gain.value = track.volume ?? 0.8;
-    trackPan.pan.value = track.pan ?? 0;
-    trackGain.connect(trackPan);
-    trackPan.connect(this.masterGain);
-    scheduleDrumHit(this.context, trackGain, drum, now);
-  }
-
-  previewBlock(track, block, bpm, { loop = true } = {}) {
-    this.stopPreview();
-    this.ensureContext();
-
-    const secondsPerBeat = 60 / bpm;
-    const loopDuration = block.length * secondsPerBeat;
-
-    const scheduleOnce = () => {
-      const startTime = this.context.currentTime + 0.05;
+    this.runWithContext(() => {
+      const now = this.context.currentTime + 0.01;
+      const tempNote = { pitch, velocity: 0.9 };
       const trackGain = this.context.createGain();
       const trackPan = this.context.createStereoPanner();
       trackGain.gain.value = track.volume ?? 0.8;
       trackPan.pan.value = track.pan ?? 0;
       trackGain.connect(trackPan);
       trackPan.connect(this.masterGain);
-      if (track.type === "synth") {
-        block.notes.forEach((note) => {
-          const noteStart = startTime + note.start * secondsPerBeat;
-          const duration = note.duration * secondsPerBeat;
-          scheduleSynthNote(this.context, track, trackGain, note, noteStart, duration);
-        });
-      } else {
-        const previewBlock = { ...block, startBeat: 0 };
-        scheduleDrumPattern(this.context, trackGain, previewBlock, secondsPerBeat, startTime);
+      scheduleSynthNote(this.context, track, trackGain, tempNote, now, duration);
+    });
+  }
+
+  previewDrum(track, drum) {
+    this.runWithContext(() => {
+      const now = this.context.currentTime + 0.01;
+      const trackGain = this.context.createGain();
+      const trackPan = this.context.createStereoPanner();
+      trackGain.gain.value = track.volume ?? 0.8;
+      trackPan.pan.value = track.pan ?? 0;
+      trackGain.connect(trackPan);
+      trackPan.connect(this.masterGain);
+      scheduleDrumHit(this.context, trackGain, drum, now);
+    });
+  }
+
+  previewBlock(track, block, bpm, { loop = true } = {}) {
+    this.stopPreview();
+    const schedule = () => {
+      const secondsPerBeat = 60 / bpm;
+      const loopDuration = block.length * secondsPerBeat;
+
+      const scheduleOnce = () => {
+        const startTime = this.context.currentTime + 0.05;
+        const trackGain = this.context.createGain();
+        const trackPan = this.context.createStereoPanner();
+        trackGain.gain.value = track.volume ?? 0.8;
+        trackPan.pan.value = track.pan ?? 0;
+        trackGain.connect(trackPan);
+        trackPan.connect(this.masterGain);
+        if (track.type === "synth") {
+          block.notes.forEach((note) => {
+            const noteStart = startTime + note.start * secondsPerBeat;
+            const duration = note.duration * secondsPerBeat;
+            scheduleSynthNote(this.context, track, trackGain, note, noteStart, duration);
+          });
+        } else {
+          const previewBlock = { ...block, startBeat: 0 };
+          scheduleDrumPattern(this.context, trackGain, previewBlock, secondsPerBeat, startTime);
+        }
+      };
+
+      scheduleOnce();
+
+      if (loop) {
+        this.previewTimer = window.setInterval(scheduleOnce, loopDuration * 1000);
       }
     };
 
-    scheduleOnce();
-
-    if (loop) {
-      this.previewTimer = window.setInterval(scheduleOnce, loopDuration * 1000);
-    }
+    this.runWithContext(schedule);
   }
 
   stopPreview() {
