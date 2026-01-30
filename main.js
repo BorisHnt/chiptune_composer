@@ -51,12 +51,7 @@ let playbackStopTimer = null;
 
 const history = new HistoryManager(project);
 const audioEngine = new AudioEngine();
-const safeClone = (value) => {
-  if (typeof structuredClone === "function") {
-    return structuredClone(value);
-  }
-  return JSON.parse(JSON.stringify(value));
-};
+const safeClone = (value) => JSON.parse(JSON.stringify(value));
 
 const unlockAudio = () => {
   audioEngine.runWithContext(() => {});
