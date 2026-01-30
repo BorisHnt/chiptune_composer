@@ -5,6 +5,7 @@ import {
   getProjectEndBeat,
   quantizeProject,
   HistoryManager,
+  normalizeProject,
 } from "./modules/dataModel.js";
 import { AudioEngine } from "./modules/audioEngine.js";
 import { Timeline } from "./modules/timeline.js";
@@ -36,7 +37,7 @@ const ui = {
   drumEditor: document.getElementById("drumEditor"),
 };
 
-let project = createDefaultProject();
+let project = normalizeProject(createDefaultProject());
 let snap = parseFloat(ui.snapSelect.value);
 let zoom = 72;
 let loopEnabled = false;
@@ -215,7 +216,10 @@ function closeEditor() {
 function refreshEditor() {
   const track = getActiveTrack();
   const block = getActiveBlock();
-  if (!track || !block) return;
+  if (!track || !block) {
+    closeEditor();
+    return;
+  }
 
   if (track.type === "synth") {
     ui.editorTitle.textContent = "Piano Roll";
@@ -373,7 +377,7 @@ ui.loadInput.addEventListener("change", async () => {
   const text = await file.text();
   try {
     const parsed = JSON.parse(text);
-    project = parsed;
+    project = normalizeProject(parsed);
     history.reset(project);
     applyState(project);
   } catch (error) {

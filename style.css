@@ -8,10 +8,14 @@
   --color-cream: #ffeecc;
   --color-peach: #ffb0a3;
   --color-rose: #ff6973;
+  --color-cream-soft: rgba(255, 238, 204, 0.72);
+  --color-cream-strong: rgba(255, 238, 204, 0.94);
+  --color-peach-soft: rgba(255, 176, 163, 0.38);
+  --color-slate-soft: rgba(21, 120, 140, 0.15);
   --color-ink-soft: rgba(70, 66, 94, 0.2);
   --color-grid: rgba(70, 66, 94, 0.15);
   --color-grid-light: rgba(70, 66, 94, 0.08);
-  --color-panel: rgba(255, 255, 255, 0.6);
+  --color-panel: rgba(255, 238, 204, 0.85);
 
   /* radius */
   --radius-sm: 4px;
@@ -38,7 +42,12 @@ body {
   margin: 0;
   color: var(--color-ink);
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
-  background: linear-gradient(140deg, #fff6df 0%, #ffe7d4 30%, #f6f3ff 100%);
+  background: linear-gradient(
+    140deg,
+    var(--color-cream) 0%,
+    var(--color-peach-soft) 45%,
+    var(--color-slate-soft) 100%
+  );
   min-height: 100vh;
 }
 
@@ -55,7 +64,6 @@ body {
   padding: var(--space-md) var(--space-lg);
   border-bottom: var(--border-thin);
   background: var(--color-panel);
-  backdrop-filter: blur(8px);
 }
 
 .brand-title {
@@ -81,7 +89,7 @@ body {
   align-items: center;
   gap: var(--space-xs);
   font-size: 0.85rem;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--color-cream-soft);
   border: var(--border-soft);
   border-radius: var(--radius-sm);
   padding: var(--space-2xs) var(--space-xs);
@@ -128,7 +136,7 @@ main {
 #arrangement {
   border: var(--border-thin);
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--color-cream-soft);
   padding: var(--space-md);
 }
 
@@ -153,7 +161,7 @@ main {
 }
 
 .track-list {
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--color-cream-soft);
   border-right: var(--border-thin);
 }
 
@@ -187,7 +195,7 @@ main {
   justify-content: space-between;
   align-items: center;
   gap: var(--space-2xs);
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--color-cream-soft);
   border: var(--border-soft);
   border-radius: var(--radius-sm);
   padding: 2px 4px;
@@ -254,6 +262,7 @@ main {
   flex-direction: column;
   justify-content: space-between;
   padding: var(--space-2xs);
+  padding-right: 12px;
   cursor: grab;
 }
 
@@ -266,7 +275,7 @@ main {
 }
 
 .block.is-playing {
-  outline: 2px solid var(--color-rose);
+  outline: 1px solid var(--color-rose);
 }
 
 .block-header {
@@ -290,11 +299,15 @@ main {
 }
 
 .block-resize {
-  width: 100%;
-  height: 8px;
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
   cursor: ew-resize;
-  background: rgba(70, 66, 94, 0.1);
-  border-radius: var(--radius-sm);
+  background: rgba(70, 66, 94, 0.08);
+  border-left: var(--border-soft);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 .playhead,
@@ -302,7 +315,7 @@ main {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 2px;
+  width: 1px;
   background: var(--color-rose);
   pointer-events: none;
   z-index: 5;
@@ -330,7 +343,7 @@ main {
 
 .overlay-panel {
   height: 100%;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--color-cream-strong);
   border: var(--border-thin);
   border-radius: var(--radius-md);
   display: flex;
@@ -369,7 +382,7 @@ main {
 }
 
 .piano-keys {
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--color-cream-soft);
   border-right: var(--border-thin);
   overflow: hidden;
 }
@@ -436,7 +449,7 @@ main {
   top: 0;
   width: 6px;
   height: 100%;
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 238, 204, 0.6);
   cursor: ew-resize;
 }
 
@@ -457,7 +470,7 @@ main {
 
 .drum-toolbar select {
   border: var(--border-soft);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--color-cream-soft);
   border-radius: var(--radius-sm);
   font: inherit;
   padding: 2px 6px;
@@ -472,7 +485,7 @@ main {
 
 .drum-labels {
   border-right: var(--border-thin);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--color-cream-soft);
 }
 
 .drum-label {

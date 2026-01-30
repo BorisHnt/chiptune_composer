@@ -200,7 +200,9 @@ function scheduleDrumHit(context, trackChain, drum, startTime) {
 }
 
 function scheduleDrumPattern(context, trackChain, block, secondsPerBeat, startOffset) {
-  const pattern = ensureDrumPattern(block, 16, DEFAULT_DRUM_ROWS);
+  const steps = Number.isFinite(block.pattern?.steps) ? block.pattern.steps : 16;
+  const rows = Array.isArray(block.pattern?.rows) ? block.pattern.rows : DEFAULT_DRUM_ROWS;
+  const pattern = ensureDrumPattern(block, steps, rows);
   const stepBeats = block.length / pattern.steps;
 
   pattern.grid.forEach((row, rowIndex) => {
