@@ -53,10 +53,11 @@ const history = new HistoryManager(project);
 const audioEngine = new AudioEngine();
 
 const unlockAudio = () => {
-  audioEngine.ensureContext();
+  audioEngine.runWithContext(() => {});
 };
 
-window.addEventListener("pointerdown", unlockAudio, { once: true });
+window.addEventListener("pointerdown", unlockAudio, { once: true, capture: true });
+window.addEventListener("touchstart", unlockAudio, { once: true, capture: true });
 window.addEventListener("keydown", unlockAudio, { once: true });
 
 const timeline = new Timeline({
@@ -225,6 +226,7 @@ function openEditor(trackId, blockId) {
   previewEnabled = false;
   ui.previewBtn.setAttribute("aria-pressed", "false");
   ui.editorOverlay.classList.remove("hidden");
+  audioEngine.runWithContext(() => {});
   refreshEditor();
 }
 

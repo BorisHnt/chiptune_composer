@@ -183,14 +183,17 @@ export function quantizeProject(project, snap) {
 
 export class HistoryManager {
   constructor(initialState, limit = 100) {
-    this.stack = [structuredClone(initialState)];
+    this.clone = typeof structuredClone === "function"
+      ? structuredClone
+      : (value) => JSON.parse(JSON.stringify(value));
+    this.stack = [this.clone(initialState)];
     this.index = 0;
     this.limit = limit;
   }
 
   push(state) {
     this.stack = this.stack.slice(0, this.index + 1);
-    this.stack.push(structuredClone(state));
+    this.stack.push(this.clone(state));
     if (this.stack.length > this.limit) {
       this.stack.shift();
       this.index = this.stack.length - 1;
@@ -204,7 +207,7 @@ export class HistoryManager {
       return null;
     }
     this.index -= 1;
-    return structuredClone(this.stack[this.index]);
+    return this.clone(this.stack[this.index]);
   }
 
   redo() {
@@ -212,11 +215,11 @@ export class HistoryManager {
       return null;
     }
     this.index += 1;
-    return structuredClone(this.stack[this.index]);
+    return this.clone(this.stack[this.index]);
   }
 
   reset(state) {
-    this.stack = [structuredClone(state)];
+    this.stack = [this.clone(state)];
     this.index = 0;
   }
 }

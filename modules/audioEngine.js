@@ -68,7 +68,11 @@ function createOscillatorForTrack(context, track, frequency) {
     const osc = context.createOscillator();
     const dutyMap = { pulse12: 0.125, pulse25: 0.25, pulse50: 0.5 };
     const duty = dutyMap[waveform] ?? 0.25;
-    osc.setPeriodicWave(getPulseWave(context, duty));
+    try {
+      osc.setPeriodicWave(getPulseWave(context, duty));
+    } catch (error) {
+      osc.type = "square";
+    }
     osc.frequency.value = frequency;
     return { osc, stop: () => osc.stop() };
   }
@@ -119,10 +123,21 @@ function createOscillatorForTrack(context, track, frequency) {
 
 function scheduleSynthNote(context, track, trackChain, note, startTime, duration) {
   const frequency = midiToFrequency(note.pitch + track.octave * 12);
+  if (!Number.isFinite(frequency)) {
+    return;
+  }
   const noteGain = context.createGain();
   noteGain.connect(trackChain);
 
-  const voice = createOscillatorForTrack(context, track, frequency);
+  let voice;
+  try {
+    voice = createOscillatorForTrack(context, track, frequency);
+  } catch (error) {
+    const osc = context.createOscillator();
+    osc.type = "square";
+    osc.frequency.value = frequency;
+    voice = { osc, stop: () => osc.stop() };
+  }
   voice.osc.connect(noteGain);
 
   applyEnvelope(noteGain, startTime, duration, note.velocity ?? 0.9);
@@ -264,22 +279,26 @@ export class AudioEngine {
   ensureContext() {
     if (!this.context) {
       if (!AudioContextClass) {
-        throw new Error("Web Audio API not supported");
+        console.warn("Web Audio API not supported");
+        return false;
       }
       this.context = new AudioContextClass();
       this.masterGain = this.context.createGain();
       this.masterGain.gain.value = 0.9;
       this.masterGain.connect(this.context.destination);
     }
+    return true;
   }
 
   runWithContext(callback) {
-    this.ensureContext();
-    if (this.context.state === "suspended") {
-      this.context.resume().then(callback).catch(() => {});
+    if (!this.ensureContext()) {
       return false;
     }
     callback();
+    if (this.context.state === "suspended") {
+      this.context.resume().catch(() => {});
+      return false;
+    }
     return true;
   }
 

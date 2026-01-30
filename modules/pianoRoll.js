@@ -1,4 +1,50 @@
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+const SUPPORTS_POINTER = "PointerEvent" in window;
+
+const getPoint = (event) => {
+  if (event.touches && event.touches[0]) {
+    return { clientX: event.touches[0].clientX, clientY: event.touches[0].clientY };
+  }
+  return { clientX: event.clientX, clientY: event.clientY };
+};
+
+const addStartListener = (element, handler) => {
+  if (SUPPORTS_POINTER) {
+    element.addEventListener("pointerdown", handler);
+  } else {
+    element.addEventListener("mousedown", (event) => {
+      if (event.button !== 0) return;
+      handler(event);
+    });
+    element.addEventListener("touchstart", handler, { passive: false });
+  }
+};
+
+const addMoveUpListeners = (onMove, onUp) => {
+  if (SUPPORTS_POINTER) {
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  } else {
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onUp);
+    window.addEventListener("touchcancel", onUp);
+  }
+};
+
+const removeMoveUpListeners = (onMove, onUp) => {
+  if (SUPPORTS_POINTER) {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+  } else {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+    window.removeEventListener("touchmove", onMove);
+    window.removeEventListener("touchend", onUp);
+    window.removeEventListener("touchcancel", onUp);
+  }
+};
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
@@ -74,7 +120,8 @@ export class PianoRoll {
       const key = document.createElement("div");
       key.className = "piano-key";
       key.textContent = getNoteName(pitch);
-      key.addEventListener("pointerdown", () => {
+      addStartListener(key, (event) => {
+        event.preventDefault?.();
         this.onPreviewNote?.(pitch, this.track);
       });
       keys.appendChild(key);
@@ -115,9 +162,10 @@ export class PianoRoll {
 
     const handlePointer = (event) => {
       if (event.target.closest(".note")) return;
+      const { clientX, clientY } = getPoint(event);
       const rect = gridWrap.getBoundingClientRect();
-      const x = event.clientX - rect.left + gridWrap.scrollLeft;
-      const y = event.clientY - rect.top + gridWrap.scrollTop;
+      const x = clientX - rect.left + gridWrap.scrollLeft;
+      const y = clientY - rect.top + gridWrap.scrollTop;
       const maxStart = Math.max(0, this.block.length - this.snap);
       const beat = clamp(this.quantize(this.pxToBeat(x)), 0, maxStart);
       const pitchIndex = Math.floor(y / this.rowHeight);
@@ -142,8 +190,8 @@ export class PianoRoll {
       this.render();
     };
 
-    grid.addEventListener("pointerdown", handlePointer);
-    gridWrap.addEventListener("pointerdown", handlePointer);
+    addStartListener(grid, handlePointer);
+    addStartListener(gridWrap, handlePointer);
   }
 
   findNoteAt(pitch, start) {
@@ -163,8 +211,9 @@ export class PianoRoll {
     handle.className = "resize-handle";
     noteEl.appendChild(handle);
 
-    noteEl.addEventListener("pointerdown", (event) => {
-      event.stopPropagation();
+    addStartListener(noteEl, (event) => {
+      event.stopPropagation?.();
+      event.preventDefault?.();
       this.onPreviewNote?.(note.pitch, this.track);
       if (event.target === handle) {
         this.attachResize(note, noteEl, event);
@@ -184,14 +233,16 @@ export class PianoRoll {
   }
 
   attachDrag(note, noteEl, event) {
-    const startX = event.clientX;
-    const startY = event.clientY;
+    const startPoint = getPoint(event);
+    const startX = startPoint.clientX;
+    const startY = startPoint.clientY;
     const initialStart = note.start;
     const initialPitch = note.pitch;
 
     const onMove = (moveEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      const deltaY = moveEvent.clientY - startY;
+      const point = getPoint(moveEvent);
+      const deltaX = point.clientX - startX;
+      const deltaY = point.clientY - startY;
       const maxStart = Math.max(0, this.block.length - note.duration);
       const nextStart = clamp(this.quantize(initialStart + this.pxToBeat(deltaX)), 0, maxStart);
       const pitchDelta = Math.round(deltaY / this.rowHeight);
@@ -208,21 +259,21 @@ export class PianoRoll {
     };
 
     const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
+      removeMoveUpListeners(onMove, onUp);
       this.onNoteChange?.(this.block.notes, { commit: true });
     };
 
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+    addMoveUpListeners(onMove, onUp);
   }
 
   attachResize(note, noteEl, event) {
-    const startX = event.clientX;
+    const startPoint = getPoint(event);
+    const startX = startPoint.clientX;
     const initialDuration = note.duration;
 
     const onMove = (moveEvent) => {
-      const deltaX = moveEvent.clientX - startX;
+      const point = getPoint(moveEvent);
+      const deltaX = point.clientX - startX;
       const maxDuration = Math.max(this.snap, this.block.length - note.start);
       const nextDuration = clamp(
         this.quantize(initialDuration + this.pxToBeat(deltaX)),
@@ -235,12 +286,10 @@ export class PianoRoll {
     };
 
     const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
+      removeMoveUpListeners(onMove, onUp);
       this.onNoteChange?.(this.block.notes, { commit: true });
     };
 
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+    addMoveUpListeners(onMove, onUp);
   }
 }
