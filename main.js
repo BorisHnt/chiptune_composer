@@ -312,9 +312,12 @@ function scheduleStopTimer() {
 ui.playBtn.addEventListener("click", () => {
   if (isPlaying) return;
   isPlaying = true;
-  audioEngine.playProject(project, { loop: loopEnabled });
-  scheduleStopTimer();
-  animationFrame = window.requestAnimationFrame(tick);
+  audioEngine.unlock().then((ready) => {
+    if (!ready) return;
+    audioEngine.playProject(project, { loop: loopEnabled });
+    scheduleStopTimer();
+    animationFrame = window.requestAnimationFrame(tick);
+  });
 });
 
 ui.stopBtn.addEventListener("click", () => {
@@ -418,7 +421,10 @@ ui.previewBtn.addEventListener("click", () => {
   previewEnabled = !previewEnabled;
   ui.previewBtn.setAttribute("aria-pressed", previewEnabled ? "true" : "false");
   if (previewEnabled) {
-    restartPreview();
+    audioEngine.unlock().then((ready) => {
+      if (!ready) return;
+      restartPreview();
+    });
   } else {
     audioEngine.stopPreview();
   }
