@@ -489,7 +489,7 @@ function createOscillatorForTrack(context, track, frequency) {
     return { osc: source, stop: (when) => source.stop(when) };
   }
 
-  if (track.console === "Sega" || waveform === "fm") {
+  if (track.console === "Sega") {
     const carrier = context.createOscillator();
     const modulator = context.createOscillator();
     const modGain = context.createGain();
@@ -497,9 +497,17 @@ function createOscillatorForTrack(context, track, frequency) {
     carrier.type = "sine";
     modulator.type = "sine";
 
+    const presets = {
+      fm1: { ratio: 2, index: 0.35 },
+      fm2: { ratio: 3, index: 0.5 },
+      fm3: { ratio: 1.5, index: 0.2 },
+      fm4: { ratio: 4, index: 0.7 },
+    };
+    const preset = presets[waveform] || presets.fm1;
+
     carrier.frequency.value = frequency;
-    modulator.frequency.value = frequency * 2;
-    modGain.gain.value = frequency * 0.35;
+    modulator.frequency.value = frequency * preset.ratio;
+    modGain.gain.value = frequency * preset.index;
 
     modulator.connect(modGain);
     modGain.connect(carrier.frequency);

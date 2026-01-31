@@ -38,7 +38,7 @@ export const CONSOLE_WAVES = {
   SNES: ["wave1", "wave2", "noise"],
   Atari: ["square", "noise"],
   C64: ["triangle", "saw", "pulse"],
-  Sega: ["fm"],
+  Sega: ["fm1", "fm2", "fm3", "fm4"],
 };
 
 export const MAX_TRACKS = 16;
