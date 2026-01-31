@@ -8,7 +8,24 @@ export const DRUM_KITS = {
 export const DEFAULT_DRUM_ROWS = DRUM_KITS.NES;
 
 export const CONSOLE_WAVES = {
+  Basics: [
+    "sine",
+    "triangle",
+    "square",
+    "saw",
+    "pulse",
+    "pwm",
+    "supersaw",
+    "noise",
+    "noise-pink",
+    "noise-brown",
+  ],
+  Complex: ["sub-sine", "bitcrush", "ring-mod"],
   NES: ["pulse12", "pulse25", "pulse50"],
+  Famicom: ["pulse12", "pulse25", "pulse50", "triangle", "noise"],
+  GameBoy: ["pulse12", "pulse25", "pulse50", "wave", "noise"],
+  TurboGrafx16: ["wave1", "wave2", "wave3"],
+  SNES: ["wave1", "wave2", "noise"],
   Atari: ["square", "noise"],
   C64: ["triangle", "saw", "pulse"],
   Sega: ["fm"],

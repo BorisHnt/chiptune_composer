@@ -2,6 +2,7 @@ import { DEFAULT_DRUM_ROWS, ensureDrumPattern, getProjectEndBeat } from "./dataM
 
 const PULSE_WAVES = new Map();
 const NOISE_BUFFERS = new Map();
+const WAVETABLE_BUFFERS = new Map();
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 
 const DEFAULT_ADSR = {
@@ -48,6 +49,82 @@ function getNoiseBuffer(context) {
   return buffer;
 }
 
+function getWavetableBuffer(context, name, table) {
+  const key = `${context.sampleRate}-${name}`;
+  if (WAVETABLE_BUFFERS.has(key)) {
+    return WAVETABLE_BUFFERS.get(key);
+  }
+  const length = table.length;
+  const buffer = context.createBuffer(1, length, context.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i += 1) {
+    data[i] = table[i];
+  }
+  WAVETABLE_BUFFERS.set(key, buffer);
+  return buffer;
+}
+
+function createWavetableSource(context, name, table, frequency) {
+  const source = context.createBufferSource();
+  source.buffer = getWavetableBuffer(context, name, table);
+  source.loop = true;
+  const base = source.buffer.length / context.sampleRate;
+  source.playbackRate.value = frequency * base;
+  return source;
+}
+
+function createBitcrushNode(context, bits = 6) {
+  const shaper = context.createWaveShaper();
+  const levels = Math.max(2, Math.pow(2, bits));
+  const curve = new Float32Array(65536);
+  for (let i = 0; i < curve.length; i += 1) {
+    const x = (i / (curve.length - 1)) * 2 - 1;
+    curve[i] = Math.round(x * levels) / levels;
+  }
+  shaper.curve = curve;
+  shaper.oversample = "2x";
+  return shaper;
+}
+
+const WAVETABLES = {
+  gb_wave: [
+    1, 0.8, 0.4, 0, -0.4, -0.8, -1, -0.8,
+    -0.4, 0, 0.4, 0.8, 1, 0.8, 0.4, 0,
+    -0.4, -0.8, -1, -0.8, -0.4, 0, 0.4, 0.8,
+    1, 0.8, 0.4, 0, -0.4, -0.8, -1, -0.8,
+  ],
+  tg16_wave1: [
+    0, 0.2, 0.5, 0.8, 1, 0.6, 0.2, -0.2,
+    -0.6, -1, -0.7, -0.3, 0.1, 0.5, 0.9, 0.6,
+    0.2, -0.2, -0.6, -1, -0.8, -0.4, 0, 0.4,
+    0.7, 1, 0.6, 0.2, -0.2, -0.5, -0.8, -0.6,
+  ],
+  tg16_wave2: [
+    0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1,
+    0.7, 0.4, 0.1, -0.2, -0.5, -0.8, -1, -0.8,
+    -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8,
+    1, 0.7, 0.4, 0.1, -0.2, -0.5, -0.8, -1,
+  ],
+  tg16_wave3: [
+    0, 0.4, 0.7, 0.9, 1, 0.9, 0.7, 0.4,
+    0, -0.4, -0.7, -0.9, -1, -0.9, -0.7, -0.4,
+    0, 0.4, 0.7, 0.9, 1, 0.9, 0.7, 0.4,
+    0, -0.4, -0.7, -0.9, -1, -0.9, -0.7, -0.4,
+  ],
+  snes_wave1: [
+    0, 0.1, 0.3, 0.55, 0.8, 1, 0.8, 0.5,
+    0.2, -0.1, -0.35, -0.6, -0.85, -1, -0.7, -0.3,
+    0, 0.2, 0.45, 0.7, 0.9, 1, 0.7, 0.4,
+    0.1, -0.2, -0.5, -0.75, -0.95, -1, -0.6, -0.2,
+  ],
+  snes_wave2: [
+    0, 0.2, 0.45, 0.7, 0.9, 1, 0.6, 0.2,
+    -0.2, -0.6, -1, -0.7, -0.3, 0.1, 0.5, 0.8,
+    0.4, 0, -0.4, -0.8, -1, -0.6, -0.2, 0.2,
+    0.6, 1, 0.7, 0.3, -0.1, -0.5, -0.8, -0.4,
+  ],
+};
+
 function applyEnvelope(gainNode, startTime, duration, velocity = 0.9, adsr = DEFAULT_ADSR) {
   const { attack, decay, sustain, release } = adsr;
   const attackEnd = startTime + attack;
@@ -75,6 +152,195 @@ function createOscillatorForTrack(context, track, frequency) {
     }
     osc.frequency.value = frequency;
     return { osc, stop: (when) => osc.stop(when) };
+  }
+
+  if (track.console === "Famicom") {
+    if (waveform === "noise") {
+      const source = context.createBufferSource();
+      source.buffer = getNoiseBuffer(context);
+      source.loop = true;
+      return { osc: source, stop: (when) => source.stop(when) };
+    }
+    if (waveform === "triangle") {
+      const osc = context.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = frequency;
+      return { osc, stop: (when) => osc.stop(when) };
+    }
+    const osc = context.createOscillator();
+    const dutyMap = { pulse12: 0.125, pulse25: 0.25, pulse50: 0.5 };
+    const duty = dutyMap[waveform] ?? 0.25;
+    try {
+      osc.setPeriodicWave(getPulseWave(context, duty));
+    } catch (error) {
+      osc.type = "square";
+    }
+    osc.frequency.value = frequency;
+    return { osc, stop: (when) => osc.stop(when) };
+  }
+
+  if (track.console === "GameBoy") {
+    if (waveform === "noise") {
+      const source = context.createBufferSource();
+      source.buffer = getNoiseBuffer(context);
+      source.loop = true;
+      return { osc: source, stop: (when) => source.stop(when) };
+    }
+    if (waveform === "wave") {
+      const source = createWavetableSource(context, "gb_wave", WAVETABLES.gb_wave, frequency);
+      return { osc: source, stop: (when) => source.stop(when) };
+    }
+    const osc = context.createOscillator();
+    const dutyMap = { pulse12: 0.125, pulse25: 0.25, pulse50: 0.5 };
+    const duty = dutyMap[waveform] ?? 0.25;
+    try {
+      osc.setPeriodicWave(getPulseWave(context, duty));
+    } catch (error) {
+      osc.type = "square";
+    }
+    osc.frequency.value = frequency;
+    return { osc, stop: (when) => osc.stop(when) };
+  }
+
+  if (track.console === "Basics") {
+    if (waveform === "noise" || waveform === "noise-pink" || waveform === "noise-brown") {
+      const source = context.createBufferSource();
+      source.buffer = getNoiseBuffer(context);
+      source.loop = true;
+      if (waveform === "noise-pink" || waveform === "noise-brown") {
+        const filter = context.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = waveform === "noise-brown" ? 800 : 2200;
+        source.connect(filter);
+        return {
+          osc: filter,
+          extra: [source],
+          stop: (when) => source.stop(when),
+        };
+      }
+      return { osc: source, stop: (when) => source.stop(when) };
+    }
+
+    if (waveform === "supersaw") {
+      const mix = context.createGain();
+      mix.gain.value = 0.7;
+      const detunes = [-12, -6, 0, 6, 12];
+      const oscs = detunes.map((detune) => {
+        const osc = context.createOscillator();
+        osc.type = "sawtooth";
+        osc.frequency.value = frequency;
+        osc.detune.value = detune;
+        osc.connect(mix);
+        return osc;
+      });
+      return {
+        osc: mix,
+        extra: oscs,
+        stop: (when) => {
+          oscs.forEach((osc) => osc.stop(when));
+        },
+      };
+    }
+
+    if (waveform === "pwm") {
+      const mix = context.createGain();
+      mix.gain.value = 0.9;
+      const oscA = context.createOscillator();
+      const oscB = context.createOscillator();
+      oscA.frequency.value = frequency;
+      oscB.frequency.value = frequency;
+      oscA.type = "square";
+      oscB.type = "square";
+      const gainA = context.createGain();
+      const gainB = context.createGain();
+      gainA.gain.value = 0.6;
+      gainB.gain.value = 0.4;
+      oscA.connect(gainA);
+      oscB.connect(gainB);
+      gainA.connect(mix);
+      gainB.connect(mix);
+
+      const lfo = context.createOscillator();
+      const lfoGain = context.createGain();
+      lfo.frequency.value = 2.5;
+      lfoGain.gain.value = 0.2;
+      lfo.connect(lfoGain);
+      lfoGain.connect(gainA.gain);
+      lfoGain.connect(gainB.gain);
+
+      return {
+        osc: mix,
+        extra: [oscA, oscB, lfo],
+        stop: (when) => {
+          oscA.stop(when);
+          oscB.stop(when);
+          lfo.stop(when);
+        },
+      };
+    }
+  }
+
+  if (track.console === "Complex") {
+    if (waveform === "sub-sine") {
+      const osc = context.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = frequency / 2;
+      return { osc, stop: (when) => osc.stop(when) };
+    }
+
+    if (waveform === "bitcrush") {
+      const osc = context.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = frequency;
+      const crusher = createBitcrushNode(context, 6);
+      osc.connect(crusher);
+      return { osc: crusher, extra: [osc], stop: (when) => osc.stop(when) };
+    }
+
+    if (waveform === "ring-mod") {
+      const carrier = context.createOscillator();
+      const modulator = context.createOscillator();
+      const modGain = context.createGain();
+      const carrierGain = context.createGain();
+
+      carrier.type = "sine";
+      modulator.type = "sine";
+      carrier.frequency.value = frequency;
+      modulator.frequency.value = frequency * 1.5;
+      modGain.gain.value = 0.6;
+
+      modulator.connect(modGain);
+      modGain.connect(carrierGain.gain);
+      carrier.connect(carrierGain);
+
+      return {
+        osc: carrierGain,
+        extra: [carrier, modulator],
+        stop: (when) => {
+          carrier.stop(when);
+          modulator.stop(when);
+        },
+      };
+    }
+  }
+
+  if (track.console === "TurboGrafx16") {
+    const tableName =
+      waveform === "wave2" ? "tg16_wave2" : waveform === "wave3" ? "tg16_wave3" : "tg16_wave1";
+    const source = createWavetableSource(context, tableName, WAVETABLES[tableName], frequency);
+    return { osc: source, stop: (when) => source.stop(when) };
+  }
+
+  if (track.console === "SNES") {
+    if (waveform === "noise") {
+      const source = context.createBufferSource();
+      source.buffer = getNoiseBuffer(context);
+      source.loop = true;
+      return { osc: source, stop: (when) => source.stop(when) };
+    }
+    const tableName = waveform === "wave2" ? "snes_wave2" : "snes_wave1";
+    const source = createWavetableSource(context, tableName, WAVETABLES[tableName], frequency);
+    return { osc: source, stop: (when) => source.stop(when) };
   }
 
   if (track.console === "Atari" && waveform === "noise") {
@@ -150,9 +416,15 @@ function scheduleSynthNote(context, track, trackChain, note, startTime, duration
 
   applyEnvelope(noteGain, startTime, duration, velocity);
 
-  voice.osc.start(startTime);
+  if (typeof voice.start === "function") {
+    voice.start(startTime);
+  } else if (voice.osc.start) {
+    voice.osc.start(startTime);
+  }
   if (voice.extra) {
-    voice.extra.forEach((osc) => osc.start(startTime));
+    voice.extra.forEach((osc) => {
+      if (osc.start) osc.start(startTime);
+    });
   }
 
   voice.stop(startTime + duration + DEFAULT_ADSR.release + 0.1);
