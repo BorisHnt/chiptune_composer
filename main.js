@@ -165,7 +165,12 @@ const timeline = new Timeline({
         ensureDrumPattern(block, steps, rows);
       });
     }
-    commitChange({ reRenderEditors: track.id === activeTrackId });
+    const isMuteSolo = Object.prototype.hasOwnProperty.call(changes, "mute") ||
+      Object.prototype.hasOwnProperty.call(changes, "solo");
+    commitChange({
+      reRenderEditors: track.id === activeTrackId,
+      shouldRestartPlayback: !isMuteSolo,
+    });
   },
   onTrackMove: (trackId, direction) => {
     const index = project.tracks.findIndex((track) => track.id === trackId);
