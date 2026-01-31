@@ -14,6 +14,8 @@ export const CONSOLE_WAVES = {
   Sega: ["fm"],
 };
 
+export const MAX_TRACKS = 16;
+
 const DEFAULT_TRACKS = [
   { type: "synth", console: "NES", waveform: "pulse25" },
   { type: "synth", console: "C64", waveform: "triangle" },
@@ -131,10 +133,10 @@ function normalizeTrack(track, index) {
 export function normalizeProject(rawProject) {
   const safe = isObject(rawProject) ? rawProject : {};
   const bpm = Number.isFinite(safe.bpm) ? clamp(safe.bpm, 40, 240) : 120;
-  const incomingTracks = Array.isArray(safe.tracks) ? safe.tracks.slice(0, 5) : [];
+  const incomingTracks = Array.isArray(safe.tracks) ? safe.tracks.slice(0, MAX_TRACKS) : [];
   const name = typeof safe.name === "string" && safe.name.trim() ? safe.name.trim() : "Untitled Project";
-
-  const tracks = Array.from({ length: 5 }, (_, index) => {
+  const trackCount = Math.max(incomingTracks.length, 5);
+  const tracks = Array.from({ length: trackCount }, (_, index) => {
     const incoming = incomingTracks[index];
     return normalizeTrack(incoming, index);
   });

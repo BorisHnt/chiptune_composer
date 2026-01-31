@@ -7,6 +7,8 @@ import {
   HistoryManager,
   normalizeProject,
   getDrumRowsForConsole,
+  createTrack,
+  MAX_TRACKS,
 } from "./modules/dataModel.js";
 import { AudioEngine } from "./modules/audioEngine.js";
 import { Timeline } from "./modules/timeline.js";
@@ -32,12 +34,18 @@ const ui = {
   loadInput: document.getElementById("loadInput"),
   timeline: document.getElementById("timeline"),
   timeInfo: document.getElementById("timeInfo"),
+  addTrackBtn: document.getElementById("addTrackBtn"),
   editorOverlay: document.getElementById("editorOverlay"),
   editorTitle: document.getElementById("editorTitle"),
   previewBtn: document.getElementById("previewBtn"),
   closeEditorBtn: document.getElementById("closeEditorBtn"),
   pianoRoll: document.getElementById("pianoRoll"),
   drumEditor: document.getElementById("drumEditor"),
+  confirmOverlay: document.getElementById("confirmOverlay"),
+  confirmTitle: document.getElementById("confirmTitle"),
+  confirmMessage: document.getElementById("confirmMessage"),
+  confirmCancelBtn: document.getElementById("confirmCancelBtn"),
+  confirmOkBtn: document.getElementById("confirmOkBtn"),
 };
 
 const STORAGE_KEY = "chiptune_composer_autosave_v1";
@@ -87,6 +95,7 @@ let previewEnabled = false;
 let animationFrame = null;
 let playbackStopTimer = null;
 let previewAnimationFrame = null;
+let pendingConfirm = null;
 
 const history = new HistoryManager(project);
 if (cachedProject) {
@@ -154,6 +163,30 @@ const timeline = new Timeline({
     }
     commitChange({ reRenderEditors: track.id === activeTrackId });
   },
+  onTrackMove: (trackId, direction) => {
+    const index = project.tracks.findIndex((track) => track.id === trackId);
+    if (index === -1) return;
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= project.tracks.length) return;
+    const [track] = project.tracks.splice(index, 1);
+    project.tracks.splice(nextIndex, 0, track);
+    commitChange();
+  },
+  onTrackDelete: (trackId) => {
+    if (project.tracks.length <= 1) return;
+    const track = project.tracks.find((item) => item.id === trackId);
+    openConfirm({
+      title: "Delete Track",
+      message: track ? `Delete ${track.type} track?` : "Delete this track?",
+      onConfirm: () => {
+        project.tracks = project.tracks.filter((item) => item.id !== trackId);
+        if (activeTrackId === trackId) {
+          closeEditor();
+        }
+        commitChange();
+      },
+    });
+  },
   onCursorChange: (beat) => {
     cursorBeat = beat;
     if (!isPlaying) {
@@ -210,6 +243,8 @@ const drumEditor = new DrumEditor({
   },
 });
 
+ui.addTrackBtn.disabled = project.tracks.length >= MAX_TRACKS;
+
 function trimNotesToBlock(block) {
   if (!block || !Array.isArray(block.notes)) return;
   block.notes = block.notes
@@ -238,6 +273,7 @@ function commitChange(options = {}) {
   if (reRenderTimeline) {
     timeline.setProject(project);
   }
+  ui.addTrackBtn.disabled = project.tracks.length >= MAX_TRACKS;
   if (reRenderEditors && activeBlockId) {
     refreshEditor();
   }
@@ -252,6 +288,7 @@ function applyState(nextState) {
   scheduleCacheSave();
   ui.bpmInput.value = project.bpm;
   timeline.setProject(project);
+  ui.addTrackBtn.disabled = project.tracks.length >= MAX_TRACKS;
   if (activeBlockId) {
     const track = getActiveTrack();
     const block = getActiveBlock();
@@ -290,6 +327,18 @@ function closeEditor() {
   stopPreviewAnimation();
   ui.previewBtn.setAttribute("aria-pressed", "false");
   ui.editorOverlay.classList.add("hidden");
+}
+
+function openConfirm({ title, message, onConfirm }) {
+  pendingConfirm = typeof onConfirm === "function" ? onConfirm : null;
+  ui.confirmTitle.textContent = title || "Confirm";
+  ui.confirmMessage.textContent = message || "Are you sure?";
+  ui.confirmOverlay.classList.remove("hidden");
+}
+
+function closeConfirm() {
+  pendingConfirm = null;
+  ui.confirmOverlay.classList.add("hidden");
 }
 
 function refreshEditor() {
@@ -432,6 +481,15 @@ ui.loopBtn.addEventListener("click", () => {
   }
 });
 
+ui.addTrackBtn.addEventListener("click", () => {
+  if (project.tracks.length >= MAX_TRACKS) {
+    return;
+  }
+  const newTrack = createTrack(project.tracks.length);
+  project.tracks.push(newTrack);
+  commitChange();
+});
+
 ui.bpmInput.value = project.bpm;
 ui.bpmInput.addEventListener("change", () => {
   project.bpm = parseInt(ui.bpmInput.value, 10) || 120;
@@ -488,7 +546,13 @@ ui.saveBtn.addEventListener("click", () => {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = "chiptune-project.json";
+  const rawName = (project.name || "chiptune-project").trim();
+  const safeName = rawName
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  anchor.download = `${safeName || "chiptune-project"}.json`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -542,6 +606,19 @@ ui.previewBtn.addEventListener("click", () => {
 });
 
 ui.closeEditorBtn.addEventListener("click", closeEditor);
+ui.confirmCancelBtn.addEventListener("click", closeConfirm);
+ui.confirmOkBtn.addEventListener("click", () => {
+  if (pendingConfirm) {
+    pendingConfirm();
+  }
+  closeConfirm();
+});
+
+ui.confirmOverlay.addEventListener("pointerdown", (event) => {
+  if (event.target === ui.confirmOverlay) {
+    closeConfirm();
+  }
+});
 
 ui.editorOverlay.addEventListener("pointerdown", () => {
   audioEngine.unlock();

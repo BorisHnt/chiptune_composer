@@ -15,6 +15,8 @@ export class Timeline {
     onAddBlock,
     onTrackChange,
     onCursorChange,
+    onTrackMove,
+    onTrackDelete,
   }) {
     this.container = container;
     this.project = project;
@@ -27,6 +29,8 @@ export class Timeline {
     this.onAddBlock = onAddBlock;
     this.onTrackChange = onTrackChange;
     this.onCursorChange = onCursorChange;
+    this.onTrackMove = onTrackMove;
+    this.onTrackDelete = onTrackDelete;
     this.blockElements = new Map();
     this.playheadEl = null;
     this.cursorEl = null;
@@ -156,6 +160,23 @@ export class Timeline {
     addBtn.addEventListener("click", () => this.onAddBlock?.(track.id));
     title.appendChild(addBtn);
 
+    const moveUpBtn = document.createElement("button");
+    moveUpBtn.className = "btn tiny";
+    moveUpBtn.textContent = "Up";
+    moveUpBtn.disabled = index === 0;
+    moveUpBtn.addEventListener("click", () => this.onTrackMove?.(track.id, -1));
+
+    const moveDownBtn = document.createElement("button");
+    moveDownBtn.className = "btn tiny";
+    moveDownBtn.textContent = "Down";
+    moveDownBtn.disabled = index === this.project.tracks.length - 1;
+    moveDownBtn.addEventListener("click", () => this.onTrackMove?.(track.id, 1));
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "btn tiny danger";
+    deleteBtn.textContent = "Del";
+    deleteBtn.addEventListener("click", () => this.onTrackDelete?.(track.id));
+
     const controls = document.createElement("div");
     controls.className = "track-controls";
 
@@ -262,6 +283,12 @@ export class Timeline {
     controls.appendChild(soloBtn);
 
     header.appendChild(title);
+    const actions = document.createElement("div");
+    actions.className = "track-actions";
+    actions.appendChild(moveUpBtn);
+    actions.appendChild(moveDownBtn);
+    actions.appendChild(deleteBtn);
+    header.appendChild(actions);
     header.appendChild(controls);
 
     return header;

@@ -87,7 +87,13 @@ export async function exportProjectToWav(project) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = "chiptune-export.wav";
+  const rawName = (project.name || "chiptune-export").trim();
+  const safeName = rawName
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  anchor.download = `${safeName || "chiptune-export"}.wav`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

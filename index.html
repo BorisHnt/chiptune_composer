@@ -56,6 +56,7 @@
           <div class="timeline-header">
             <div class="timeline-title">Timeline</div>
             <div class="timeline-info" id="timeInfo">0:00</div>
+            <button id="addTrackBtn" class="btn tiny">+ Track</button>
           </div>
           <div id="timeline"></div>
         </section>
@@ -74,6 +75,21 @@
         <div class="overlay-body">
           <div id="pianoRoll" class="editor hidden"></div>
           <div id="drumEditor" class="editor hidden"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="confirmOverlay" class="overlay hidden">
+      <div class="overlay-panel confirm-panel">
+        <div class="overlay-header">
+          <div id="confirmTitle">Delete Track</div>
+        </div>
+        <div class="overlay-body confirm-body">
+          <p id="confirmMessage">Are you sure?</p>
+          <div class="confirm-actions">
+            <button id="confirmCancelBtn" class="btn">Cancel</button>
+            <button id="confirmOkBtn" class="btn danger">Delete</button>
+          </div>
         </div>
       </div>
     </div>

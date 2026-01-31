@@ -191,6 +191,15 @@ main {
   flex-shrink: 0;
 }
 
+.track-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.btn.danger {
+  background: var(--color-peach);
+}
+
 .track-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -373,6 +382,25 @@ main {
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+
+.confirm-panel {
+  max-width: 420px;
+  margin: 0 auto;
+  height: auto;
+}
+
+.confirm-body {
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
 }
 
 .editor {
