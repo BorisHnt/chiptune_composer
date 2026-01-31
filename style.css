@@ -164,7 +164,7 @@ main {
 
 #timeline {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 320px 1fr;
   border: var(--border-thin);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -661,7 +661,7 @@ main {
   }
 
   #timeline {
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: 240px 1fr;
   }
 }
 
@@ -675,7 +675,7 @@ main {
   }
 
   #timeline {
-    grid-template-columns: 200px 1fr;
+    grid-template-columns: 220px 1fr;
   }
 
   .track-controls {
