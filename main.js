@@ -10,6 +10,7 @@ import {
   createTrack,
   MAX_TRACKS,
 } from "./modules/dataModel.js";
+import { CONSOLE_WAVES } from "./modules/dataModel.js";
 import { AudioEngine } from "./modules/audioEngine.js";
 import { Timeline } from "./modules/timeline.js";
 import { PianoRoll } from "./modules/pianoRoll.js";
@@ -25,6 +26,7 @@ const ui = {
   bpmInput: document.getElementById("bpmInput"),
   loopBtn: document.getElementById("loopBtn"),
   exportBtn: document.getElementById("exportBtn"),
+  globalConsoleSelect: document.getElementById("globalConsoleSelect"),
   snapSelect: document.getElementById("snapSelect"),
   zoomSlider: document.getElementById("zoomSlider"),
   quantizeBtn: document.getElementById("quantizeBtn"),
@@ -571,6 +573,19 @@ ui.snapSelect.addEventListener("change", () => {
   timeline.setSnap(snap);
   pianoRoll.setSnap(snap);
   drumEditor.setSnap(snap);
+});
+
+ui.globalConsoleSelect.addEventListener("change", () => {
+  const consoleName = ui.globalConsoleSelect.value;
+  if (!consoleName) return;
+  project.tracks.forEach((track) => {
+    if (track.type === "drums") return;
+    const waves = CONSOLE_WAVES[consoleName] || [];
+    track.console = consoleName;
+    track.waveform = waves[0] || track.waveform;
+  });
+  commitChange();
+  ui.globalConsoleSelect.value = "";
 });
 
 ui.zoomSlider.value = zoom;
