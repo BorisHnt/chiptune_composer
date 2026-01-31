@@ -15,6 +15,7 @@ import { Timeline } from "./modules/timeline.js";
 import { PianoRoll } from "./modules/pianoRoll.js";
 import { DrumEditor } from "./modules/drumEditor.js";
 import { exportProjectToWav } from "./modules/exportWav.js";
+import { importMidiFile } from "./modules/midiImport.js";
 
 const ui = {
   playBtn: document.getElementById("playBtn"),
@@ -30,8 +31,10 @@ const ui = {
   redoBtn: document.getElementById("redoBtn"),
   saveBtn: document.getElementById("saveBtn"),
   loadBtn: document.getElementById("loadBtn"),
+  importMidiBtn: document.getElementById("importMidiBtn"),
   clearCacheBtn: document.getElementById("clearCacheBtn"),
   loadInput: document.getElementById("loadInput"),
+  midiInput: document.getElementById("midiInput"),
   timeline: document.getElementById("timeline"),
   timeInfo: document.getElementById("timeInfo"),
   addTrackBtn: document.getElementById("addTrackBtn"),
@@ -565,6 +568,10 @@ ui.loadBtn.addEventListener("click", () => {
   ui.loadInput.click();
 });
 
+ui.importMidiBtn.addEventListener("click", () => {
+  ui.midiInput.click();
+});
+
 ui.loadInput.addEventListener("change", async () => {
   const file = ui.loadInput.files[0];
   if (!file) return;
@@ -578,6 +585,20 @@ ui.loadInput.addEventListener("change", async () => {
     console.error("Invalid JSON", error);
   }
   ui.loadInput.value = "";
+});
+
+ui.midiInput.addEventListener("change", async () => {
+  const file = ui.midiInput.files[0];
+  if (!file) return;
+  try {
+    const importedProject = await importMidiFile(file);
+    project = normalizeProject(importedProject);
+    history.reset(project);
+    applyState(project);
+  } catch (error) {
+    console.error("Failed to import MIDI", error);
+  }
+  ui.midiInput.value = "";
 });
 
 ui.clearCacheBtn.addEventListener("click", () => {
