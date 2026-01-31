@@ -167,10 +167,14 @@ const timeline = new Timeline({
     }
     const isMuteSolo = Object.prototype.hasOwnProperty.call(changes, "mute") ||
       Object.prototype.hasOwnProperty.call(changes, "solo");
+    const isVolume = Object.prototype.hasOwnProperty.call(changes, "volume");
     commitChange({
       reRenderEditors: track.id === activeTrackId,
-      shouldRestartPlayback: !isMuteSolo,
+      shouldRestartPlayback: !(isMuteSolo || isVolume),
     });
+    if (audioEngine.isPlaying && (isMuteSolo || isVolume)) {
+      audioEngine.updateTrackMix(project);
+    }
   },
   onTrackMove: (trackId, direction) => {
     const index = project.tracks.findIndex((track) => track.id === trackId);

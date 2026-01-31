@@ -343,7 +343,12 @@ function fadeOutAndDisconnect(node, context) {
 }
 
 export function scheduleProject(context, project, options = {}) {
-  const { startTime = 0, master = context.destination, ignoreMuteSolo = false } = options;
+  const {
+    startTime = 0,
+    master = context.destination,
+    ignoreMuteSolo = false,
+    trackGains = null,
+  } = options;
   const secondsPerBeat = 60 / project.bpm;
   const soloActive = project.tracks.some((track) => track.solo);
 
@@ -353,7 +358,16 @@ export function scheduleProject(context, project, options = {}) {
       if (soloActive && !track.solo) return;
     }
 
-    const trackOutput = createTrackOutput(context, master, track.volume ?? 0.8);
+    let trackOutput = null;
+    if (trackGains && trackGains.has(track.id)) {
+      trackOutput = trackGains.get(track.id);
+    }
+    if (!trackOutput) {
+      trackOutput = createTrackOutput(context, master, track.volume ?? 0.8);
+      if (trackGains) {
+        trackGains.set(track.id, trackOutput);
+      }
+    }
 
     track.blocks.forEach((block) => {
       if (track.type === "synth") {
@@ -384,6 +398,7 @@ export class AudioEngine {
     this.previewLoop = false;
     this.playBus = null;
     this.previewBus = null;
+    this.trackGains = new Map();
   }
 
   ensureContext() {
@@ -425,15 +440,22 @@ export class AudioEngine {
       const startTime = this.context.currentTime + 0.08;
 
       this.playBus = createBus(this.context, this.masterGain, 1);
+      this.trackGains = new Map();
 
       this.isPlaying = true;
       this.loop = loop;
       this.playStartTime = startTime;
       this.playDuration = duration;
+      this.updateTrackMix(project);
 
       const leadTime = Math.min(0.2, duration / 3);
       const scheduleLoop = (loopStart) => {
-        scheduleProject(this.context, project, { startTime: loopStart, master: this.playBus });
+        scheduleProject(this.context, project, {
+          startTime: loopStart,
+          master: this.playBus,
+          ignoreMuteSolo: true,
+          trackGains: this.trackGains,
+        });
         if (!this.loop) return;
         const nextStart = loopStart + duration;
         const delay = Math.max(0, (nextStart - this.context.currentTime - leadTime) * 1000);
@@ -462,7 +484,28 @@ export class AudioEngine {
       fadeOutAndDisconnect(this.playBus, this.context);
       this.playBus = null;
     }
+    this.trackGains.clear();
     this.isPlaying = false;
+  }
+
+  updateTrackMix(project) {
+    if (!this.trackGains || !this.context) return;
+    const soloActive = project.tracks.some((track) => track.solo);
+    const now = this.context.currentTime;
+    project.tracks.forEach((track) => {
+      const output = this.trackGains.get(track.id);
+      if (!output) return;
+      const base = Number.isFinite(track.volume) ? track.volume : 0.8;
+      const shouldMute = track.mute || (soloActive && !track.solo);
+      const target = shouldMute ? 0 : base;
+      try {
+        output.input.gain.cancelScheduledValues(now);
+        output.input.gain.setValueAtTime(output.input.gain.value, now);
+        output.input.gain.linearRampToValueAtTime(target, now + 0.02);
+      } catch (error) {
+        output.input.gain.value = target;
+      }
+    });
   }
 
   getCurrentBeat(bpm) {
