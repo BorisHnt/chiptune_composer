@@ -86,6 +86,61 @@ function createBitcrushNode(context, bits = 6) {
   return shaper;
 }
 
+function createDriveNode(context, amount = 1.5) {
+  const shaper = context.createWaveShaper();
+  const curve = new Float32Array(65536);
+  for (let i = 0; i < curve.length; i += 1) {
+    const x = (i / (curve.length - 1)) * 2 - 1;
+    curve[i] = Math.tanh(x * amount);
+  }
+  shaper.curve = curve;
+  shaper.oversample = "2x";
+  return shaper;
+}
+
+function createFoldNode(context, amount = 2.2) {
+  const shaper = context.createWaveShaper();
+  const curve = new Float32Array(65536);
+  for (let i = 0; i < curve.length; i += 1) {
+    const x = (i / (curve.length - 1)) * 2 - 1;
+    const folded = Math.abs(((x * amount + 1) % 4) - 2) - 1;
+    curve[i] = Math.max(-1, Math.min(1, folded));
+  }
+  shaper.curve = curve;
+  shaper.oversample = "2x";
+  return shaper;
+}
+
+function createChorusNode(context, baseDelay = 0.015, depth = 0.006, rate = 0.25) {
+  const delay = context.createDelay();
+  const lfo = context.createOscillator();
+  const lfoGain = context.createGain();
+  delay.delayTime.value = baseDelay;
+  lfo.frequency.value = rate;
+  lfoGain.gain.value = depth;
+  lfo.connect(lfoGain);
+  lfoGain.connect(delay.delayTime);
+  return { input: delay, output: delay, extra: [lfo] };
+}
+
+function createPhaserNode(context) {
+  const stage1 = context.createBiquadFilter();
+  const stage2 = context.createBiquadFilter();
+  stage1.type = "allpass";
+  stage2.type = "allpass";
+  stage1.frequency.value = 700;
+  stage2.frequency.value = 1600;
+  const lfo = context.createOscillator();
+  const lfoGain = context.createGain();
+  lfo.frequency.value = 0.3;
+  lfoGain.gain.value = 600;
+  lfo.connect(lfoGain);
+  lfoGain.connect(stage1.frequency);
+  lfoGain.connect(stage2.frequency);
+  stage1.connect(stage2);
+  return { input: stage1, output: stage2, extra: [lfo] };
+}
+
 const WAVETABLES = {
   gb_wave: [
     1, 0.8, 0.4, 0, -0.4, -0.8, -1, -0.8,
@@ -320,6 +375,90 @@ function createOscillatorForTrack(context, track, frequency) {
           carrier.stop(when);
           modulator.stop(when);
         },
+      };
+    }
+
+    if (waveform === "am") {
+      const carrier = context.createOscillator();
+      const modulator = context.createOscillator();
+      const modGain = context.createGain();
+      const carrierGain = context.createGain();
+
+      carrier.type = "sine";
+      modulator.type = "sine";
+      carrier.frequency.value = frequency;
+      modulator.frequency.value = frequency * 2.5;
+      modGain.gain.value = 0.4;
+
+      modulator.connect(modGain);
+      modGain.connect(carrierGain.gain);
+      carrier.connect(carrierGain);
+
+      return {
+        osc: carrierGain,
+        extra: [carrier, modulator],
+        stop: (when) => {
+          carrier.stop(when);
+          modulator.stop(when);
+        },
+      };
+    }
+
+    if (waveform === "fold") {
+      const osc = context.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = frequency;
+      const fold = createFoldNode(context, 2.2);
+      osc.connect(fold);
+      return { osc: fold, extra: [osc], stop: (when) => osc.stop(when) };
+    }
+
+    if (waveform === "drive") {
+      const osc = context.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = frequency;
+      const drive = createDriveNode(context, 1.8);
+      osc.connect(drive);
+      return { osc: drive, extra: [osc], stop: (when) => osc.stop(when) };
+    }
+
+    if (waveform === "hard-sync") {
+      const master = context.createOscillator();
+      const slave = context.createOscillator();
+      master.type = "sawtooth";
+      slave.type = "sawtooth";
+      master.frequency.value = frequency;
+      slave.frequency.value = frequency * 1.5;
+      master.connect(slave.frequency);
+      return { osc: slave, extra: [master, slave], stop: (when) => {
+        master.stop(when);
+        slave.stop(when);
+      } };
+    }
+
+    if (waveform === "phaser") {
+      const osc = context.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = frequency;
+      const phaser = createPhaserNode(context);
+      osc.connect(phaser.input);
+      return {
+        osc: phaser.output,
+        extra: [osc, ...phaser.extra],
+        stop: (when) => osc.stop(when),
+      };
+    }
+
+    if (waveform === "chorus") {
+      const osc = context.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = frequency;
+      const chorus = createChorusNode(context);
+      osc.connect(chorus.input);
+      return {
+        osc: chorus.output,
+        extra: [osc, ...chorus.extra],
+        stop: (when) => osc.stop(when),
       };
     }
   }
