@@ -132,6 +132,8 @@ function parseMidi(data) {
 function buildProjectFromMidi(midi, filename) {
   const bpm = Math.round(60000000 / (midi.tempo || 500000));
   const name = filename ? filename.replace(/\.[^/.]+$/, "") : "Imported MIDI";
+  const snap = 1 / 16 / 4; // 1/64 beat
+  const quantize = (value) => Math.round(value / snap) * snap;
 
   const drumNotes = [];
   const trackNotes = midi.tracks.map((track) => track.notes || []);
@@ -176,8 +178,10 @@ function buildProjectFromMidi(midi, filename) {
     const track = createTrack(index, { type: "synth" });
     const block = createBlock({ startBeat: 0, length: 4, type: "synth" });
     block.notes = group.notes.map((note) => {
-      const start = note.start / midi.ppq;
-      const duration = Math.max(0.05, (note.end - note.start) / midi.ppq);
+      const rawStart = note.start / midi.ppq;
+      const rawDuration = Math.max(0.05, (note.end - note.start) / midi.ppq);
+      const start = quantize(rawStart);
+      const duration = Math.max(snap, quantize(rawDuration));
       const velocity = Math.max(0.1, Math.min(1, note.velocity / 127));
       const endBeat = start + duration;
       maxBeat = Math.max(maxBeat, endBeat);
@@ -194,8 +198,10 @@ function buildProjectFromMidi(midi, filename) {
     const drumBlock = createBlock({ startBeat: 0, length: 4, type: "drums" });
     const pattern = ensureDrumPattern(drumBlock, rows);
     pattern.events = drumNotes.map((note) => {
-      const start = note.start / midi.ppq;
-      const duration = Math.max(0.05, (note.end - note.start) / midi.ppq);
+      const rawStart = note.start / midi.ppq;
+      const rawDuration = Math.max(0.05, (note.end - note.start) / midi.ppq);
+      const start = quantize(rawStart);
+      const duration = Math.max(snap, quantize(rawDuration));
       const endBeat = start + duration;
       maxBeat = Math.max(maxBeat, endBeat);
       return {
