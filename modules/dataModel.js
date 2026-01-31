@@ -62,6 +62,7 @@ export function createTrack(index) {
 export function createDefaultProject() {
   const tracks = Array.from({ length: 5 }, (_, index) => createTrack(index));
   return {
+    name: "Untitled Project",
     bpm: 120,
     tracks,
   };
@@ -97,7 +98,7 @@ function normalizeBlocks(blocks, type, drumRows) {
       const steps = Number.isFinite(safe.pattern?.steps) ? safe.pattern.steps : 16;
       const rows = Array.isArray(drumRows) ? drumRows : DEFAULT_DRUM_ROWS;
       normalized.pattern = safe.pattern || [];
-      ensureDrumPattern(normalized, steps, rows);
+      ensureDrumPattern(normalized, rows);
     }
 
     return normalized;
@@ -131,59 +132,68 @@ export function normalizeProject(rawProject) {
   const safe = isObject(rawProject) ? rawProject : {};
   const bpm = Number.isFinite(safe.bpm) ? clamp(safe.bpm, 40, 240) : 120;
   const incomingTracks = Array.isArray(safe.tracks) ? safe.tracks.slice(0, 5) : [];
+  const name = typeof safe.name === "string" && safe.name.trim() ? safe.name.trim() : "Untitled Project";
 
   const tracks = Array.from({ length: 5 }, (_, index) => {
     const incoming = incomingTracks[index];
     return normalizeTrack(incoming, index);
   });
 
-  return { bpm, tracks };
+  return { name, bpm, tracks };
 }
 
-export function ensureDrumPattern(block, steps = 16, rows = DEFAULT_DRUM_ROWS) {
-  if (!block.pattern || !block.pattern.grid) {
-    block.pattern = {
-      steps,
-      rows: [...rows],
-      grid: rows.map(() => Array.from({ length: steps }, () => false)),
-      volumes: rows.reduce((acc, row) => {
-        acc[row] = 0.9;
-        return acc;
-      }, {}),
-    };
-  }
+export function ensureDrumPattern(block, rows = DEFAULT_DRUM_ROWS) {
+  const pattern = block.pattern && typeof block.pattern === "object" ? block.pattern : {};
 
-  if (block.pattern.steps !== steps) {
-    block.pattern.steps = steps;
-    block.pattern.grid = block.pattern.rows.map((_, rowIndex) => {
-      const existing = block.pattern.grid[rowIndex] || [];
-      return Array.from({ length: steps }, (_, step) => Boolean(existing[step]));
+  if (!pattern.events && Array.isArray(pattern.grid)) {
+    const steps = Number.isFinite(pattern.steps) ? pattern.steps : 16;
+    const stepBeats = block.length / steps;
+    const legacyRows = Array.isArray(pattern.rows) ? pattern.rows : rows;
+    pattern.events = [];
+    pattern.grid.forEach((row, rowIndex) => {
+      const drum = legacyRows[rowIndex] || rows[rowIndex];
+      if (!drum) return;
+      row.forEach((active, stepIndex) => {
+        if (!active) return;
+        pattern.events.push({
+          id: createId(),
+          drum,
+          start: stepIndex * stepBeats,
+          duration: stepBeats,
+          velocity: 0.9,
+        });
+      });
     });
   }
 
-  if (!block.pattern.volumes) {
-    block.pattern.volumes = {};
+  if (!pattern.events) {
+    pattern.events = [];
   }
 
-  if (rows && rows.length) {
-    const previousRows = block.pattern.rows || [];
-    const previousGrid = block.pattern.grid || [];
-    const rowMap = new Map();
-    previousRows.forEach((rowName, index) => {
-      rowMap.set(rowName, previousGrid[index] || []);
-    });
+  pattern.rows = Array.isArray(rows) && rows.length ? [...rows] : [...DEFAULT_DRUM_ROWS];
 
-    block.pattern.rows = [...rows];
-    block.pattern.grid = rows.map((rowName) => rowMap.get(rowName) || Array.from({ length: steps }, () => false));
+  pattern.events = pattern.events
+    .filter((event) => event && pattern.rows.includes(event.drum))
+    .map((event) => ({
+      id: event.id || createId(),
+      drum: event.drum,
+      start: Number.isFinite(event.start) ? Math.max(0, event.start) : 0,
+      duration: Number.isFinite(event.duration) ? Math.max(0.05, event.duration) : 0.25,
+      velocity: Number.isFinite(event.velocity) ? clamp(event.velocity, 0, 1) : 0.9,
+    }));
+
+  if (!pattern.volumes || typeof pattern.volumes !== "object") {
+    pattern.volumes = {};
   }
 
-  rows.forEach((rowName) => {
-    if (!Number.isFinite(block.pattern.volumes[rowName])) {
-      block.pattern.volumes[rowName] = 0.9;
+  pattern.rows.forEach((rowName) => {
+    if (!Number.isFinite(pattern.volumes[rowName])) {
+      pattern.volumes[rowName] = 0.9;
     }
   });
 
-  return block.pattern;
+  block.pattern = pattern;
+  return pattern;
 }
 
 export function getDrumRowsForConsole(consoleName) {

@@ -184,16 +184,15 @@ function scheduleNoiseBurst(context, trackChain, startTime, duration, filterType
   noise.stop(startTime + duration + 0.2);
 }
 
-function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9) {
-  const duration = 0.2;
+function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9, duration = 0.2) {
   if (drum === "kick") {
     const osc = context.createOscillator();
     const gain = context.createGain();
     osc.type = "sine";
     osc.frequency.setValueAtTime(140, startTime);
-    osc.frequency.exponentialRampToValueAtTime(50, startTime + 0.12);
+    osc.frequency.exponentialRampToValueAtTime(50, startTime + Math.min(0.12, duration));
     gain.gain.setValueAtTime(level, startTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.18);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + Math.max(0.12, duration));
     osc.connect(gain);
     gain.connect(trackChain);
     osc.start(startTime);
@@ -202,24 +201,24 @@ function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9) {
   }
 
   if (drum === "snare") {
-    scheduleNoiseBurst(context, trackChain, startTime, 0.18, "bandpass", level);
+    scheduleNoiseBurst(context, trackChain, startTime, duration, "bandpass", level);
     return;
   }
 
   if (drum === "hat") {
-    scheduleNoiseBurst(context, trackChain, startTime, 0.1, "highpass", level * 0.8);
+    scheduleNoiseBurst(context, trackChain, startTime, duration, "highpass", level * 0.8);
     return;
   }
 
   if (drum === "openhat") {
-    scheduleNoiseBurst(context, trackChain, startTime, 0.3, "highpass", level * 0.7);
+    scheduleNoiseBurst(context, trackChain, startTime, duration, "highpass", level * 0.7);
     return;
   }
 
   if (drum === "clap") {
-    scheduleNoiseBurst(context, trackChain, startTime, 0.12, "bandpass", level * 0.6);
-    scheduleNoiseBurst(context, trackChain, startTime + 0.03, 0.12, "bandpass", level * 0.5);
-    scheduleNoiseBurst(context, trackChain, startTime + 0.06, 0.12, "bandpass", level * 0.4);
+    scheduleNoiseBurst(context, trackChain, startTime, duration * 0.6, "bandpass", level * 0.6);
+    scheduleNoiseBurst(context, trackChain, startTime + duration * 0.25, duration * 0.6, "bandpass", level * 0.5);
+    scheduleNoiseBurst(context, trackChain, startTime + duration * 0.5, duration * 0.6, "bandpass", level * 0.4);
     return;
   }
 
@@ -228,18 +227,18 @@ function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9) {
     const gain = context.createGain();
     osc.type = "triangle";
     osc.frequency.setValueAtTime(180, startTime);
-    osc.frequency.exponentialRampToValueAtTime(90, startTime + 0.18);
+    osc.frequency.exponentialRampToValueAtTime(90, startTime + Math.max(0.12, duration));
     gain.gain.setValueAtTime(level * 0.7, startTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.18);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + Math.max(0.12, duration));
     osc.connect(gain);
     gain.connect(trackChain);
     osc.start(startTime);
-    osc.stop(startTime + 0.22);
+    osc.stop(startTime + duration);
     return;
   }
 
   if (drum === "noise") {
-    scheduleNoiseBurst(context, trackChain, startTime, 0.2, "highpass", level * 0.7);
+    scheduleNoiseBurst(context, trackChain, startTime, duration, "highpass", level * 0.7);
     return;
   }
 
@@ -256,13 +255,13 @@ function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9) {
     modulator.connect(modGain);
     modGain.connect(carrier.frequency);
     gain.gain.setValueAtTime(level * 0.6, startTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.18);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + Math.max(0.12, duration));
     carrier.connect(gain);
     gain.connect(trackChain);
     carrier.start(startTime);
     modulator.start(startTime);
-    carrier.stop(startTime + 0.22);
-    modulator.stop(startTime + 0.22);
+    carrier.stop(startTime + duration);
+    modulator.stop(startTime + duration);
     return;
   }
 
@@ -275,14 +274,14 @@ function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9) {
     osc1.frequency.setValueAtTime(540, startTime);
     osc2.frequency.setValueAtTime(810, startTime);
     gain.gain.setValueAtTime(level * 0.5, startTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.18);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + Math.max(0.12, duration));
     osc1.connect(gain);
     osc2.connect(gain);
     gain.connect(trackChain);
     osc1.start(startTime);
     osc2.start(startTime);
-    osc1.stop(startTime + 0.2);
-    osc2.stop(startTime + 0.2);
+    osc1.stop(startTime + duration);
+    osc2.stop(startTime + duration);
     return;
   }
 
@@ -291,7 +290,7 @@ function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9) {
   osc.type = "triangle";
   osc.frequency.value = 320;
   gain.gain.setValueAtTime(level * 0.5, startTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.12);
+  gain.gain.exponentialRampToValueAtTime(0.001, startTime + Math.max(0.08, duration));
   osc.connect(gain);
   gain.connect(trackChain);
   osc.start(startTime);
@@ -299,19 +298,14 @@ function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9) {
 }
 
 function scheduleDrumPattern(context, trackChain, block, secondsPerBeat, startOffset) {
-  const steps = Number.isFinite(block.pattern?.steps) ? block.pattern.steps : 16;
   const rows = Array.isArray(block.pattern?.rows) ? block.pattern.rows : DEFAULT_DRUM_ROWS;
-  const pattern = ensureDrumPattern(block, steps, rows);
-  const stepBeats = block.length / pattern.steps;
+  const pattern = ensureDrumPattern(block, rows);
 
-  pattern.grid.forEach((row, rowIndex) => {
-    row.forEach((active, step) => {
-      if (!active) return;
-      const time = startOffset + (block.startBeat + step * stepBeats) * secondsPerBeat;
-      const drum = pattern.rows[rowIndex];
-      const volume = Number.isFinite(pattern.volumes?.[drum]) ? pattern.volumes[drum] : 0.9;
-      scheduleDrumHit(context, trackChain, drum, time, volume);
-    });
+  pattern.events.forEach((event) => {
+    const time = startOffset + (block.startBeat + event.start) * secondsPerBeat;
+    const volume = Number.isFinite(pattern.volumes?.[event.drum]) ? pattern.volumes[event.drum] : 0.9;
+    const duration = Math.max(0.05, event.duration || 0.25) * secondsPerBeat;
+    scheduleDrumHit(context, trackChain, event.drum, time, volume, duration);
   });
 }
 

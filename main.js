@@ -17,6 +17,7 @@ import { exportProjectToWav } from "./modules/exportWav.js";
 const ui = {
   playBtn: document.getElementById("playBtn"),
   stopBtn: document.getElementById("stopBtn"),
+  projectNameInput: document.getElementById("projectNameInput"),
   bpmInput: document.getElementById("bpmInput"),
   loopBtn: document.getElementById("loopBtn"),
   exportBtn: document.getElementById("exportBtn"),
@@ -187,7 +188,8 @@ const pianoRoll = new PianoRoll({
 
 const drumEditor = new DrumEditor({
   container: ui.drumEditor,
-  zoom: zoom / 2,
+  zoom: zoom,
+  snap,
   onPatternChange: (_pattern, meta = {}) => {
     const shouldCommit = meta.commit !== false;
     commitChange({
@@ -246,6 +248,7 @@ function commitChange(options = {}) {
 
 function applyState(nextState) {
   project = nextState;
+  ui.projectNameInput.value = project.name || "Untitled Project";
   scheduleCacheSave();
   ui.bpmInput.value = project.bpm;
   timeline.setProject(project);
@@ -308,7 +311,7 @@ function refreshEditor() {
     ui.editorTitle.textContent = "Drum Grid";
     ui.drumEditor.classList.remove("hidden");
     ui.pianoRoll.classList.add("hidden");
-    drumEditor.setZoom(zoom / 2);
+    drumEditor.setZoom(zoom);
     drumEditor.setData(track, block);
   }
 
@@ -436,10 +439,19 @@ ui.bpmInput.addEventListener("change", () => {
   commitChange({ reRenderTimeline: false, reRenderEditors: false });
 });
 
+ui.projectNameInput.value = project.name || "Untitled Project";
+ui.projectNameInput.addEventListener("change", () => {
+  const name = ui.projectNameInput.value.trim();
+  project.name = name || "Untitled Project";
+  ui.projectNameInput.value = project.name;
+  commitChange({ reRenderTimeline: false, reRenderEditors: false });
+});
+
 ui.snapSelect.addEventListener("change", () => {
   snap = parseFloat(ui.snapSelect.value);
   timeline.setSnap(snap);
   pianoRoll.setSnap(snap);
+  drumEditor.setSnap(snap);
 });
 
 ui.zoomSlider.value = zoom;
@@ -447,7 +459,7 @@ ui.zoomSlider.addEventListener("input", () => {
   zoom = parseInt(ui.zoomSlider.value, 10);
   timeline.setZoom(zoom);
   pianoRoll.setZoom(zoom);
-  drumEditor.setZoom(zoom / 2);
+  drumEditor.setZoom(zoom);
 });
 
 ui.quantizeBtn.addEventListener("click", () => {

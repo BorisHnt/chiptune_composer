@@ -490,6 +490,11 @@ main {
   gap: var(--space-sm);
 }
 
+.drum-hint {
+  font-size: 0.7rem;
+  color: rgba(70, 66, 94, 0.7);
+}
+
 .drum-toolbar select {
   border: var(--border-soft);
   background: rgba(255, 255, 255, 0.7);
@@ -537,12 +542,12 @@ main {
 
 .drum-grid-wrap {
   overflow: auto;
+  position: relative;
 }
 
 .drum-grid {
   position: relative;
-  display: grid;
-  grid-auto-rows: 28px;
+  min-height: 100%;
   background-image:
     repeating-linear-gradient(
       to right,
@@ -557,7 +562,41 @@ main {
       var(--color-grid-light) 1px,
       transparent 1px,
       transparent var(--grid-minor)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(70, 66, 94, 0.08) 0px,
+      rgba(70, 66, 94, 0.08) 1px,
+      transparent 1px,
+      transparent 28px
     );
+}
+
+.drum-hits {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.drum-hit {
+  position: absolute;
+  height: 22px;
+  background: var(--color-peach);
+  border: var(--border-thin);
+  border-radius: var(--radius-sm);
+  cursor: grab;
+}
+
+.drum-hit .resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.4);
+  cursor: ew-resize;
 }
 
 .drum-cell {
