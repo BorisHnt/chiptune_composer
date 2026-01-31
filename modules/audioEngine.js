@@ -799,6 +799,7 @@ export class AudioEngine {
     this.context = null;
     this.masterGain = null;
     this.masterLimiter = null;
+    this.analyser = null;
     this.masterVolumeValue = 0.9;
     this.isPlaying = false;
     this.loop = false;
@@ -829,8 +830,11 @@ export class AudioEngine {
       this.masterLimiter.ratio.value = 12;
       this.masterLimiter.attack.value = 0.003;
       this.masterLimiter.release.value = 0.12;
+      this.analyser = this.context.createAnalyser();
+      this.analyser.fftSize = 2048;
       this.masterGain.connect(this.masterLimiter);
-      this.masterLimiter.connect(this.context.destination);
+      this.masterLimiter.connect(this.analyser);
+      this.analyser.connect(this.context.destination);
     }
     return true;
   }
@@ -858,6 +862,10 @@ export class AudioEngine {
     this.masterGain.gain.cancelScheduledValues(now);
     this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
     this.masterGain.gain.linearRampToValueAtTime(volume, now + 0.02);
+  }
+
+  getAnalyser() {
+    return this.analyser;
   }
 
   playProject(project, { loop = false } = {}) {

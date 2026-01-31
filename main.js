@@ -51,6 +51,7 @@ const ui = {
   confirmMessage: document.getElementById("confirmMessage"),
   confirmCancelBtn: document.getElementById("confirmCancelBtn"),
   confirmOkBtn: document.getElementById("confirmOkBtn"),
+  oscilloscopeCanvas: document.getElementById("oscilloscopeCanvas"),
 };
 
 const STORAGE_KEY = "chiptune_composer_autosave_v1";
@@ -101,6 +102,7 @@ let animationFrame = null;
 let playbackStopTimer = null;
 let previewAnimationFrame = null;
 let pendingConfirm = null;
+let oscilloscopeFrame = null;
 
 const history = new HistoryManager(project);
 if (cachedProject) {
@@ -442,6 +444,40 @@ function tick() {
   animationFrame = window.requestAnimationFrame(tick);
 }
 
+function startOscilloscope() {
+  const canvas = ui.oscilloscopeCanvas;
+  const analyser = audioEngine.getAnalyser();
+  if (!canvas || !analyser) return;
+  const ctx = canvas.getContext("2d");
+  const buffer = new Uint8Array(analyser.fftSize);
+
+  const render = () => {
+    oscilloscopeFrame = window.requestAnimationFrame(render);
+    analyser.getByteTimeDomainData(buffer);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "#15788c";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const slice = canvas.width / buffer.length;
+    let x = 0;
+    for (let i = 0; i < buffer.length; i += 1) {
+      const v = buffer[i] / 128 - 1;
+      const y = (canvas.height / 2) * (1 - v);
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+      x += slice;
+    }
+    ctx.stroke();
+  };
+
+  if (!oscilloscopeFrame) {
+    render();
+  }
+}
+
 function scheduleStopTimer() {
   if (playbackStopTimer) {
     clearTimeout(playbackStopTimer);
@@ -475,6 +511,7 @@ ui.playBtn.addEventListener("click", () => {
   audioEngine.playProject(project, { loop: loopEnabled });
   scheduleStopTimer();
   animationFrame = window.requestAnimationFrame(tick);
+  startOscilloscope();
 });
 
 ui.stopBtn.addEventListener("click", () => {
@@ -641,6 +678,7 @@ ui.previewBtn.addEventListener("click", () => {
       return;
     }
     restartPreview();
+    startOscilloscope();
   } else {
     audioEngine.stopPreview();
     stopPreviewAnimation();
@@ -664,6 +702,7 @@ ui.confirmOverlay.addEventListener("pointerdown", (event) => {
 
 ui.editorOverlay.addEventListener("pointerdown", () => {
   audioEngine.unlock();
+  startOscilloscope();
 });
 
 window.addEventListener("keydown", (event) => {

@@ -54,12 +54,25 @@ body {
 
 .topbar {
   display: grid;
-  grid-template-columns: minmax(200px, 280px) 1fr 1fr;
+  grid-template-columns: minmax(200px, 280px) 240px 1fr 1fr;
   gap: var(--space-md);
   padding: var(--space-md) var(--space-lg);
   border-bottom: var(--border-thin);
   background: var(--color-panel);
   backdrop-filter: blur(8px);
+}
+
+.oscilloscope {
+  align-self: center;
+  justify-self: end;
+  background: rgba(255, 255, 255, 0.7);
+  border: var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+}
+
+.oscilloscope canvas {
+  display: block;
 }
 
 .brand-title {
