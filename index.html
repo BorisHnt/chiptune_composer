@@ -17,40 +17,50 @@
           <canvas id="oscilloscopeCanvas" width="220" height="64"></canvas>
         </div>
         <div class="transport">
-          <button id="playBtn" class="btn">Play</button>
-          <button id="stopBtn" class="btn">Stop</button>
-          <label class="field">
-            <span>Project</span>
-            <input id="projectNameInput" type="text" />
-          </label>
-          <label class="field">
-            <span>Master</span>
-            <input id="masterVolumeInput" type="range" min="0" max="1" step="0.01" />
-          </label>
-          <label class="field">
-            <span>BPM</span>
-            <input id="bpmInput" type="number" min="40" max="240" step="1" />
-          </label>
-          <button id="loopBtn" class="btn toggle" aria-pressed="false">Loop</button>
-          <button id="exportBtn" class="btn">Export WAV</button>
+          <div class="transport-row">
+            <button id="playBtn" class="btn">Play</button>
+            <button id="stopBtn" class="btn">Stop</button>
+            <label class="field">
+              <span>Project</span>
+              <input id="projectNameInput" type="text" />
+            </label>
+            <label class="field">
+              <span>Master</span>
+              <input id="masterVolumeInput" type="range" min="0" max="1" step="0.01" />
+            </label>
+            <label class="field">
+              <span>BPM</span>
+              <input id="bpmInput" type="number" min="40" max="240" step="1" />
+            </label>
+            <button id="loopBtn" class="btn toggle" aria-pressed="false">Loop</button>
+            <button id="exportBtn" class="btn">Export WAV</button>
+          </div>
+          <div class="transport-row">
+            <label class="field">
+              <span>All Console</span>
+              <select id="globalConsoleSelect">
+                <option value="">—</option>
+                <option value="Basics">Basics</option>
+                <option value="Complex">Complex</option>
+                <option value="NES">NES</option>
+                <option value="Famicom">Famicom</option>
+                <option value="GameBoy">GameBoy</option>
+                <option value="TurboGrafx16">TurboGrafx-16</option>
+                <option value="SNES">SNES</option>
+                <option value="Atari">Atari</option>
+                <option value="C64">C64</option>
+                <option value="Sega">Sega</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>All Wave</span>
+              <select id="globalWaveformSelect">
+                <option value="">—</option>
+              </select>
+            </label>
+          </div>
         </div>
         <div class="tools">
-          <label class="field">
-            <span>All Console</span>
-            <select id="globalConsoleSelect">
-              <option value="">—</option>
-              <option value="Basics">Basics</option>
-              <option value="Complex">Complex</option>
-              <option value="NES">NES</option>
-              <option value="Famicom">Famicom</option>
-              <option value="GameBoy">GameBoy</option>
-              <option value="TurboGrafx16">TurboGrafx-16</option>
-              <option value="SNES">SNES</option>
-              <option value="Atari">Atari</option>
-              <option value="C64">C64</option>
-              <option value="Sega">Sega</option>
-            </select>
-          </label>
           <label class="field">
             <span>Snap</span>
             <select id="snapSelect">

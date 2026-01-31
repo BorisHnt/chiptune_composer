@@ -27,6 +27,7 @@ const ui = {
   loopBtn: document.getElementById("loopBtn"),
   exportBtn: document.getElementById("exportBtn"),
   globalConsoleSelect: document.getElementById("globalConsoleSelect"),
+  globalWaveformSelect: document.getElementById("globalWaveformSelect"),
   snapSelect: document.getElementById("snapSelect"),
   zoomSlider: document.getElementById("zoomSlider"),
   quantizeBtn: document.getElementById("quantizeBtn"),
@@ -578,14 +579,34 @@ ui.snapSelect.addEventListener("change", () => {
 ui.globalConsoleSelect.addEventListener("change", () => {
   const consoleName = ui.globalConsoleSelect.value;
   if (!consoleName) return;
+  const waves = CONSOLE_WAVES[consoleName] || [];
   project.tracks.forEach((track) => {
     if (track.type === "drums") return;
-    const waves = CONSOLE_WAVES[consoleName] || [];
     track.console = consoleName;
     track.waveform = waves[0] || track.waveform;
   });
   commitChange();
+  ui.globalWaveformSelect.innerHTML = '<option value="">—</option>';
+  waves.forEach((wave) => {
+    const option = document.createElement("option");
+    option.value = wave;
+    option.textContent = wave;
+    ui.globalWaveformSelect.appendChild(option);
+  });
   ui.globalConsoleSelect.value = "";
+});
+
+ui.globalWaveformSelect.addEventListener("change", () => {
+  const wave = ui.globalWaveformSelect.value;
+  if (!wave) return;
+  project.tracks.forEach((track) => {
+    if (track.type === "drums") return;
+    const waves = CONSOLE_WAVES[track.console] || [];
+    if (!waves.includes(wave)) return;
+    track.waveform = wave;
+  });
+  commitChange();
+  ui.globalWaveformSelect.value = "";
 });
 
 ui.zoomSlider.value = zoom;
