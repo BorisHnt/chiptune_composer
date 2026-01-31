@@ -56,7 +56,13 @@
           <div class="timeline-header">
             <div class="timeline-title">Timeline</div>
             <div class="timeline-info" id="timeInfo">0:00</div>
-            <button id="addTrackBtn" class="btn tiny">+ Track</button>
+            <div class="timeline-actions">
+              <select id="trackTypeSelect">
+                <option value="synth">Synth</option>
+                <option value="drums">Drums</option>
+              </select>
+              <button id="addTrackBtn" class="btn tiny">+ Track</button>
+            </div>
           </div>
           <div id="timeline"></div>
         </section>

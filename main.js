@@ -35,6 +35,7 @@ const ui = {
   timeline: document.getElementById("timeline"),
   timeInfo: document.getElementById("timeInfo"),
   addTrackBtn: document.getElementById("addTrackBtn"),
+  trackTypeSelect: document.getElementById("trackTypeSelect"),
   editorOverlay: document.getElementById("editorOverlay"),
   editorTitle: document.getElementById("editorTitle"),
   previewBtn: document.getElementById("previewBtn"),
@@ -485,7 +486,8 @@ ui.addTrackBtn.addEventListener("click", () => {
   if (project.tracks.length >= MAX_TRACKS) {
     return;
   }
-  const newTrack = createTrack(project.tracks.length);
+  const type = ui.trackTypeSelect?.value === "drums" ? "drums" : "synth";
+  const newTrack = createTrack(project.tracks.length, { type });
   project.tracks.push(newTrack);
   commitChange();
 });

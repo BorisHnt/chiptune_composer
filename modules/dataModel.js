@@ -45,13 +45,19 @@ export function createBlock({ startBeat = 0, length = 4, type = "synth" } = {}) 
   };
 }
 
-export function createTrack(index) {
+export function createTrack(index, options = {}) {
   const template = DEFAULT_TRACKS[index] || DEFAULT_TRACKS[0];
+  const requestedType = options.type === "drums" ? "drums" : options.type === "synth" ? "synth" : null;
+  const baseTemplate = requestedType
+    ? requestedType === "drums"
+      ? DEFAULT_TRACKS[4]
+      : DEFAULT_TRACKS[0]
+    : template;
   return {
     id: createId(),
-    type: template.type,
-    console: template.console,
-    waveform: template.waveform,
+    type: baseTemplate.type,
+    console: baseTemplate.console,
+    waveform: baseTemplate.waveform,
     volume: 0.8,
     pan: 0,
     octave: 0,
