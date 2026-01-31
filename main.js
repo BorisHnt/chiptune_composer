@@ -21,6 +21,7 @@ const ui = {
   playBtn: document.getElementById("playBtn"),
   stopBtn: document.getElementById("stopBtn"),
   projectNameInput: document.getElementById("projectNameInput"),
+  masterVolumeInput: document.getElementById("masterVolumeInput"),
   bpmInput: document.getElementById("bpmInput"),
   loopBtn: document.getElementById("loopBtn"),
   exportBtn: document.getElementById("exportBtn"),
@@ -298,6 +299,8 @@ function commitChange(options = {}) {
 function applyState(nextState) {
   project = nextState;
   ui.projectNameInput.value = project.name || "Untitled Project";
+  ui.masterVolumeInput.value = Number.isFinite(project.masterVolume) ? project.masterVolume : 0.9;
+  audioEngine.setMasterVolume(project.masterVolume ?? 0.9);
   scheduleCacheSave();
   ui.bpmInput.value = project.bpm;
   timeline.setProject(project);
@@ -509,6 +512,13 @@ ui.bpmInput.addEventListener("change", () => {
   project.bpm = parseInt(ui.bpmInput.value, 10) || 120;
   ui.bpmInput.value = project.bpm;
   commitChange({ reRenderTimeline: false, reRenderEditors: false });
+});
+
+ui.masterVolumeInput.value = Number.isFinite(project.masterVolume) ? project.masterVolume : 0.9;
+ui.masterVolumeInput.addEventListener("input", () => {
+  project.masterVolume = parseFloat(ui.masterVolumeInput.value);
+  audioEngine.setMasterVolume(project.masterVolume);
+  commitChange({ reRenderTimeline: false, reRenderEditors: false, shouldRestartPlayback: false });
 });
 
 ui.projectNameInput.value = project.name || "Untitled Project";

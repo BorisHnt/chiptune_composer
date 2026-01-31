@@ -75,8 +75,15 @@ export async function exportProjectToWav(project) {
 
   const offline = new OfflineContextClass(2, duration * sampleRate, sampleRate);
   const master = offline.createGain();
-  master.gain.value = 0.9;
-  master.connect(offline.destination);
+  master.gain.value = Number.isFinite(project.masterVolume) ? project.masterVolume : 0.9;
+  const limiter = offline.createDynamicsCompressor();
+  limiter.threshold.value = -8;
+  limiter.knee.value = 8;
+  limiter.ratio.value = 12;
+  limiter.attack.value = 0.003;
+  limiter.release.value = 0.12;
+  master.connect(limiter);
+  limiter.connect(offline.destination);
 
   scheduleProject(offline, project, { startTime: 0, master });
 

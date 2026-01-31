@@ -99,6 +99,7 @@ export function createDefaultProject() {
   return {
     name: "Untitled Project",
     bpm: 120,
+    masterVolume: 0.9,
     tracks,
   };
 }
@@ -168,13 +169,14 @@ export function normalizeProject(rawProject) {
   const bpm = Number.isFinite(safe.bpm) ? clamp(safe.bpm, 40, 240) : 120;
   const incomingTracks = Array.isArray(safe.tracks) ? safe.tracks.slice(0, MAX_TRACKS) : [];
   const name = typeof safe.name === "string" && safe.name.trim() ? safe.name.trim() : "Untitled Project";
+  const masterVolume = Number.isFinite(safe.masterVolume) ? clamp(safe.masterVolume, 0, 1) : 0.9;
   const trackCount = Math.max(incomingTracks.length, 5);
   const tracks = Array.from({ length: trackCount }, (_, index) => {
     const incoming = incomingTracks[index];
     return normalizeTrack(incoming, index);
   });
 
-  return { name, bpm, tracks };
+  return { name, bpm, masterVolume, tracks };
 }
 
 export function ensureDrumPattern(block, rows = DEFAULT_DRUM_ROWS) {

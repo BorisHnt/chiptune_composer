@@ -798,6 +798,8 @@ export class AudioEngine {
   constructor() {
     this.context = null;
     this.masterGain = null;
+    this.masterLimiter = null;
+    this.masterVolumeValue = 0.9;
     this.isPlaying = false;
     this.loop = false;
     this.playStartTime = 0;
@@ -820,8 +822,15 @@ export class AudioEngine {
       }
       this.context = new AudioContextClass();
       this.masterGain = this.context.createGain();
-      this.masterGain.gain.value = 0.9;
-      this.masterGain.connect(this.context.destination);
+      this.masterGain.gain.value = this.masterVolumeValue;
+      this.masterLimiter = this.context.createDynamicsCompressor();
+      this.masterLimiter.threshold.value = -8;
+      this.masterLimiter.knee.value = 8;
+      this.masterLimiter.ratio.value = 12;
+      this.masterLimiter.attack.value = 0.003;
+      this.masterLimiter.release.value = 0.12;
+      this.masterGain.connect(this.masterLimiter);
+      this.masterLimiter.connect(this.context.destination);
     }
     return true;
   }
@@ -839,6 +848,16 @@ export class AudioEngine {
 
   unlock() {
     return this.runWithContext(() => {});
+  }
+
+  setMasterVolume(value) {
+    const volume = Math.max(0, Math.min(1, value));
+    this.masterVolumeValue = volume;
+    if (!this.context || !this.masterGain) return;
+    const now = this.context.currentTime;
+    this.masterGain.gain.cancelScheduledValues(now);
+    this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
+    this.masterGain.gain.linearRampToValueAtTime(volume, now + 0.02);
   }
 
   playProject(project, { loop = false } = {}) {
