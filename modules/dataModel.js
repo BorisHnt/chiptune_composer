@@ -144,7 +144,7 @@ export function createBlock({ startBeat = 0, length = 4, type = "synth" } = {}) 
     startBeat,
     length,
     notes: type === "synth" ? [] : [],
-    pattern: [],
+    pattern: type === "drums" ? {} : [],
   };
 }
 
@@ -320,7 +320,19 @@ export function normalizeProject(rawProject) {
 }
 
 export function ensureDrumPattern(block, rows = DEFAULT_DRUM_ROWS) {
-  const pattern = block.pattern && typeof block.pattern === "object" ? block.pattern : {};
+  const sourcePattern = block.pattern;
+  const pattern =
+    sourcePattern && typeof sourcePattern === "object" && !Array.isArray(sourcePattern)
+      ? sourcePattern
+      : {
+          events: Array.isArray(sourcePattern?.events) ? sourcePattern.events : [],
+          rows: Array.isArray(sourcePattern?.rows) ? sourcePattern.rows : undefined,
+          volumes:
+            sourcePattern?.volumes && typeof sourcePattern.volumes === "object"
+              ? sourcePattern.volumes
+              : {},
+          steps: Number.isFinite(sourcePattern?.steps) ? sourcePattern.steps : 16,
+        };
 
   if (!pattern.events && Array.isArray(pattern.grid)) {
     const steps = Number.isFinite(pattern.steps) ? pattern.steps : 16;

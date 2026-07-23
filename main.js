@@ -146,7 +146,25 @@ if (cachedProject) {
 }
 const audioEngine = new AudioEngine();
 const safeClone = (value) => JSON.parse(JSON.stringify(value));
+const createRuntimeId = () => Math.random().toString(36).slice(2, 10);
 
+function findDuplicateStart(track, source) {
+  const length = Math.max(0.25, source.length);
+  let startBeat = source.startBeat + length;
+  const otherBlocks = track.blocks
+    .filter((block) => block.id !== source.id)
+    .sort((a, b) => a.startBeat - b.startBeat);
+
+  while (true) {
+    const conflict = otherBlocks.find((block) => {
+      const blockEnd = block.startBeat + block.length;
+      const cloneEnd = startBeat + length;
+      return startBeat < blockEnd - 0.0001 && cloneEnd > block.startBeat + 0.0001;
+    });
+    if (!conflict) return startBeat;
+    startBeat = conflict.startBeat + conflict.length;
+  }
+}
 
 const timeline = new Timeline({
   container: ui.timeline,
@@ -166,8 +184,15 @@ const timeline = new Timeline({
     const source = track.blocks.find((block) => block.id === blockId);
     if (!source) return;
     const clone = safeClone(source);
-    clone.id = Math.random().toString(36).slice(2, 10);
-    clone.startBeat = source.startBeat + source.length;
+    clone.id = createRuntimeId();
+    clone.startBeat = findDuplicateStart(track, source);
+    if (track.type === "drums") {
+      ensureDrumPattern(clone, getDrumRowsForConsole(track.console));
+      clone.pattern.events = clone.pattern.events.map((event) => ({
+        ...event,
+        id: createRuntimeId(),
+      }));
+    }
     track.blocks.push(clone);
     commitChange();
   },
