@@ -11,8 +11,11 @@ import {
   MAX_TRACKS,
   DEFAULT_ADSR,
   DRUM_KITS,
+  DRUM_PARAMETER_KEYS,
+  CONSOLE_WAVES,
+  getDrumVoicePreset,
+  getDrumVoiceSettings,
 } from "./modules/dataModel.js";
-import { CONSOLE_WAVES } from "./modules/dataModel.js";
 import { AudioEngine } from "./modules/audioEngine.js";
 import { Timeline } from "./modules/timeline.js";
 import { PianoRoll } from "./modules/pianoRoll.js";
@@ -110,6 +113,7 @@ let cursorBeat = 0;
 let activeTrackId = null;
 let activeBlockId = null;
 let selectedTrackId = project.tracks[0]?.id || null;
+const selectedDrumVoiceByTrack = new Map();
 let previewEnabled = false;
 let animationFrame = null;
 let playbackStopTimer = null;
@@ -389,8 +393,63 @@ function createConsoleButton() {
   return consoleButton;
 }
 
+function ensureCustomDrumVoice(track, drum) {
+  track.drumVoices = track.drumVoices || {};
+  track.drumVoices[track.console] = track.drumVoices[track.console] || {};
+  if (!track.drumVoices[track.console][drum]) {
+    track.drumVoices[track.console][drum] = getDrumVoicePreset(track.console, drum);
+  }
+  return track.drumVoices[track.console][drum];
+}
+
+function createDrumParameterControl(track, drum, key, labelText) {
+  const settings = getDrumVoiceSettings(track, drum);
+  const wrap = document.createElement("label");
+  wrap.className = "drum-param-control";
+
+  const label = document.createElement("span");
+  label.textContent = labelText;
+
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = 0;
+  slider.max = 1;
+  slider.step = 0.01;
+  slider.value = settings[key];
+
+  const value = document.createElement("span");
+  value.className = "drum-param-value";
+  value.textContent = Math.round(settings[key] * 100);
+
+  slider.addEventListener("input", () => {
+    const custom = ensureCustomDrumVoice(track, drum);
+    custom[key] = parseFloat(slider.value);
+    value.textContent = Math.round(custom[key] * 100);
+  });
+  slider.addEventListener("change", () => {
+    commitChange({
+      reRenderTimeline: false,
+      reRenderEditors: false,
+      reRenderDevice: true,
+    });
+    audioEngine.previewDrum(track, drum, 0.9);
+  });
+
+  wrap.appendChild(label);
+  wrap.appendChild(slider);
+  wrap.appendChild(value);
+  return wrap;
+}
+
 function renderDrumDevice(track) {
   const rows = getDrumRowsForConsole(track.console);
+  let selectedDrum = selectedDrumVoiceByTrack.get(track.id);
+  if (!rows.includes(selectedDrum)) {
+    selectedDrum = rows[0];
+    selectedDrumVoiceByTrack.set(track.id, selectedDrum);
+  }
+  const hasCustomVoice = Boolean(track.drumVoices?.[track.console]?.[selectedDrum]);
+
   const drumBox = document.createElement("div");
   drumBox.className = "synth-device drum-device";
 
@@ -408,9 +467,12 @@ function renderDrumDevice(track) {
   deviceHead.appendChild(title);
   deviceHead.appendChild(type);
 
-  const deviceControls = document.createElement("div");
-  deviceControls.className = "synth-device-controls";
-  deviceControls.appendChild(createConsoleButton());
+  const kitBrowser = document.createElement("div");
+  kitBrowser.className = "drum-kit-browser";
+
+  const kitActions = document.createElement("div");
+  kitActions.className = "drum-kit-actions";
+  kitActions.appendChild(createConsoleButton());
 
   const kitPanel = document.createElement("div");
   kitPanel.className = "drum-kit-panel";
@@ -420,15 +482,81 @@ function renderDrumDevice(track) {
     pad.className = "drum-device-pad";
     pad.textContent = drum;
     pad.title = `Preview ${drum}`;
+    pad.classList.toggle("is-selected", drum === selectedDrum);
+    pad.setAttribute("aria-pressed", drum === selectedDrum ? "true" : "false");
     pad.addEventListener("click", () => {
+      selectedDrumVoiceByTrack.set(track.id, drum);
       audioEngine.previewDrum(track, drum, 0.9);
+      renderDevicePanel();
     });
     kitPanel.appendChild(pad);
   });
 
+  kitBrowser.appendChild(kitActions);
+  kitBrowser.appendChild(kitPanel);
+
+  const voiceEditor = document.createElement("div");
+  voiceEditor.className = "drum-voice-editor";
+
+  const editorHeader = document.createElement("div");
+  editorHeader.className = "drum-voice-header";
+
+  const voiceName = document.createElement("div");
+  voiceName.className = "drum-voice-name";
+  voiceName.textContent = selectedDrum;
+
+  const voiceStatus = document.createElement("span");
+  voiceStatus.className = "drum-voice-status";
+  voiceStatus.textContent = hasCustomVoice ? "Custom" : `${track.console} preset`;
+
+  const previewButton = document.createElement("button");
+  previewButton.type = "button";
+  previewButton.className = "btn tiny";
+  previewButton.textContent = "Preview";
+  previewButton.addEventListener("click", () => {
+    audioEngine.previewDrum(track, selectedDrum, 0.9);
+  });
+
+  const resetButton = document.createElement("button");
+  resetButton.type = "button";
+  resetButton.className = "btn tiny";
+  resetButton.textContent = "Reset";
+  resetButton.disabled = !hasCustomVoice;
+  resetButton.addEventListener("click", () => {
+    delete track.drumVoices?.[track.console]?.[selectedDrum];
+    commitChange({
+      reRenderTimeline: false,
+      reRenderEditors: false,
+    });
+    audioEngine.previewDrum(track, selectedDrum, 0.9);
+  });
+
+  editorHeader.appendChild(voiceName);
+  editorHeader.appendChild(voiceStatus);
+  editorHeader.appendChild(previewButton);
+  editorHeader.appendChild(resetButton);
+
+  const parameterLabels = {
+    pitch: "Pitch",
+    tone: "Tone",
+    decay: "Decay",
+    noise: "Noise",
+    drive: "Drive",
+  };
+  const parameterGrid = document.createElement("div");
+  parameterGrid.className = "drum-param-grid";
+  DRUM_PARAMETER_KEYS.forEach((key) => {
+    parameterGrid.appendChild(
+      createDrumParameterControl(track, selectedDrum, key, parameterLabels[key]),
+    );
+  });
+
+  voiceEditor.appendChild(editorHeader);
+  voiceEditor.appendChild(parameterGrid);
+
   drumBox.appendChild(deviceHead);
-  drumBox.appendChild(deviceControls);
-  drumBox.appendChild(kitPanel);
+  drumBox.appendChild(kitBrowser);
+  drumBox.appendChild(voiceEditor);
   ui.deviceContent.appendChild(drumBox);
 }
 

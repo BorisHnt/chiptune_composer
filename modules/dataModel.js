@@ -1,11 +1,41 @@
 export const DRUM_KITS = {
   NES: ["kick", "snare", "hat", "perc"],
+  Famicom: ["kick", "snare", "hat", "openhat", "tom"],
+  GameBoy: ["kick", "snare", "hat", "noise"],
+  TurboGrafx16: ["kick", "snare", "hat", "clap", "tom", "perc"],
+  SNES: ["kick", "snare", "hat", "openhat", "clap", "tom"],
   Atari: ["kick", "snare", "hat", "noise"],
   C64: ["kick", "snare", "hat", "clap", "tom"],
   Sega: ["kick", "snare", "hat", "fm-tom", "cowbell"],
 };
 
 export const DEFAULT_DRUM_ROWS = DRUM_KITS.NES;
+
+export const DRUM_CONSOLE_CHARACTER = {
+  NES: { wave: "square", bits: 5, pitch: 0.08, tone: 0.14, decay: 0.68, noise: 0, drive: 0.1 },
+  Famicom: { wave: "triangle", bits: 6, pitch: 0.03, tone: 0.08, decay: 0.86, noise: 0, drive: 0.06 },
+  GameBoy: { wave: "square", bits: 4, pitch: -0.05, tone: -0.08, decay: 0.72, noise: 0.08, drive: 0.16 },
+  TurboGrafx16: { wave: "triangle", bits: 6, pitch: 0.06, tone: 0.02, decay: 1, noise: -0.04, drive: 0.04 },
+  SNES: { wave: "sine", bits: 12, pitch: -0.04, tone: -0.12, decay: 1.28, noise: -0.05, drive: 0 },
+  Atari: { wave: "square", bits: 3, pitch: 0.14, tone: 0.18, decay: 0.55, noise: 0.1, drive: 0.25 },
+  C64: { wave: "sawtooth", bits: 4, pitch: -0.02, tone: 0.06, decay: 1.05, noise: 0.03, drive: 0.18 },
+  Sega: { wave: "sine", bits: 7, pitch: 0.1, tone: 0.12, decay: 0.9, noise: -0.04, drive: 0.2 },
+};
+
+const DRUM_VOICE_PRESETS = {
+  kick: { pitch: 0.34, tone: 0.32, decay: 0.48, noise: 0.06, drive: 0.12 },
+  snare: { pitch: 0.55, tone: 0.58, decay: 0.35, noise: 0.76, drive: 0.1 },
+  hat: { pitch: 0.75, tone: 0.82, decay: 0.16, noise: 0.96, drive: 0.05 },
+  openhat: { pitch: 0.72, tone: 0.86, decay: 0.62, noise: 1, drive: 0.04 },
+  clap: { pitch: 0.6, tone: 0.62, decay: 0.4, noise: 0.92, drive: 0.08 },
+  tom: { pitch: 0.44, tone: 0.48, decay: 0.55, noise: 0.05, drive: 0.1 },
+  "fm-tom": { pitch: 0.52, tone: 0.64, decay: 0.52, noise: 0.08, drive: 0.24 },
+  cowbell: { pitch: 0.68, tone: 0.72, decay: 0.4, noise: 0.02, drive: 0.2 },
+  perc: { pitch: 0.64, tone: 0.55, decay: 0.24, noise: 0.14, drive: 0.12 },
+  noise: { pitch: 0.55, tone: 0.42, decay: 0.38, noise: 1, drive: 0.16 },
+};
+
+export const DRUM_PARAMETER_KEYS = ["pitch", "tone", "decay", "noise", "drive"];
 
 export const CONSOLE_WAVES = {
   Basics: [
@@ -96,6 +126,7 @@ export function createTrack(index, options = {}) {
     pan: 0,
     octave: 0,
     adsr: { ...DEFAULT_ADSR },
+    drumVoices: {},
     mute: false,
     solo: false,
     blocks: [],
@@ -136,6 +167,30 @@ function normalizeAdsr(adsr) {
   };
 }
 
+function normalizeDrumVoices(drumVoices) {
+  const safeVoices = isObject(drumVoices) ? drumVoices : {};
+  const normalized = {};
+
+  Object.entries(DRUM_KITS).forEach(([consoleName, rows]) => {
+    const safeConsole = isObject(safeVoices[consoleName]) ? safeVoices[consoleName] : {};
+    rows.forEach((drum) => {
+      if (!isObject(safeConsole[drum])) return;
+      const values = {};
+      DRUM_PARAMETER_KEYS.forEach((key) => {
+        if (Number.isFinite(safeConsole[drum][key])) {
+          values[key] = clamp(safeConsole[drum][key], 0, 1);
+        }
+      });
+      if (Object.keys(values).length) {
+        normalized[consoleName] = normalized[consoleName] || {};
+        normalized[consoleName][drum] = values;
+      }
+    });
+  });
+
+  return normalized;
+}
+
 function normalizeBlocks(blocks, type, drumRows) {
   if (!Array.isArray(blocks)) return [];
   return blocks.map((block) => {
@@ -163,7 +218,8 @@ function normalizeTrack(track, index) {
   const base = createTrack(index);
   const safe = isObject(track) ? track : {};
   const type = safe.type === "drums" ? "drums" : safe.type === "synth" ? "synth" : base.type;
-  const consoleName = CONSOLE_WAVES[safe.console] ? safe.console : base.console;
+  const availableConsoles = type === "drums" ? DRUM_KITS : CONSOLE_WAVES;
+  const consoleName = availableConsoles[safe.console] ? safe.console : base.console;
   const waves = CONSOLE_WAVES[consoleName] || [];
   const waveform = waves.includes(safe.waveform) ? safe.waveform : waves[0] || base.waveform;
 
@@ -177,6 +233,7 @@ function normalizeTrack(track, index) {
     pan: Number.isFinite(safe.pan) ? clamp(safe.pan, -1, 1) : base.pan,
     octave: Number.isFinite(safe.octave) ? clamp(safe.octave, -3, 3) : base.octave,
     adsr: normalizeAdsr(safe.adsr),
+    drumVoices: normalizeDrumVoices(safe.drumVoices),
     mute: Boolean(safe.mute),
     solo: Boolean(safe.solo),
     blocks: normalizeBlocks(safe.blocks, type, getDrumRowsForConsole(consoleName)),
@@ -254,6 +311,31 @@ export function ensureDrumPattern(block, rows = DEFAULT_DRUM_ROWS) {
 
 export function getDrumRowsForConsole(consoleName) {
   return DRUM_KITS[consoleName] ? [...DRUM_KITS[consoleName]] : [...DEFAULT_DRUM_ROWS];
+}
+
+export function getDrumVoicePreset(consoleName, drum) {
+  const base = DRUM_VOICE_PRESETS[drum] || DRUM_VOICE_PRESETS.perc;
+  const character = DRUM_CONSOLE_CHARACTER[consoleName] || DRUM_CONSOLE_CHARACTER.NES;
+  return {
+    pitch: clamp(base.pitch + character.pitch, 0, 1),
+    tone: clamp(base.tone + character.tone, 0, 1),
+    decay: clamp(base.decay * character.decay, 0, 1),
+    noise: clamp(base.noise + character.noise, 0, 1),
+    drive: clamp(base.drive + character.drive, 0, 1),
+  };
+}
+
+export function getDrumVoiceSettings(track, drum) {
+  const preset = getDrumVoicePreset(track?.console, drum);
+  const custom = track?.drumVoices?.[track.console]?.[drum];
+  if (!isObject(custom)) return preset;
+  const settings = { ...preset };
+  DRUM_PARAMETER_KEYS.forEach((key) => {
+    if (Number.isFinite(custom[key])) {
+      settings[key] = clamp(custom[key], 0, 1);
+    }
+  });
+  return settings;
 }
 
 export function getProjectEndBeat(project) {

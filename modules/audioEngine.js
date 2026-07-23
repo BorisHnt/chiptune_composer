@@ -1,4 +1,11 @@
-import { DEFAULT_ADSR, DEFAULT_DRUM_ROWS, ensureDrumPattern, getProjectEndBeat } from "./dataModel.js";
+import {
+  DEFAULT_ADSR,
+  DEFAULT_DRUM_ROWS,
+  DRUM_CONSOLE_CHARACTER,
+  ensureDrumPattern,
+  getDrumVoiceSettings,
+  getProjectEndBeat,
+} from "./dataModel.js";
 
 const PULSE_WAVES = new Map();
 const NOISE_BUFFERS = new Map();
@@ -6,6 +13,8 @@ const WAVETABLE_BUFFERS = new Map();
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 
 const midiToFrequency = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
+const lerp = (min, max, amount) => min + (max - min) * amount;
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 function getPulseWave(context, duty) {
   const key = `${context.sampleRate}-${duty}`;
@@ -571,87 +580,162 @@ function scheduleSynthNote(context, track, trackChain, note, startTime, duration
   voice.stop(startTime + duration + (adsr.release ?? DEFAULT_ADSR.release) + 0.1);
 }
 
-function scheduleNoiseBurst(context, trackChain, startTime, duration, filterType = "highpass", level = 0.9) {
+function createDrumDestination(context, trackChain, consoleName, settings) {
+  const input = context.createGain();
+  const character = DRUM_CONSOLE_CHARACTER[consoleName] || DRUM_CONSOLE_CHARACTER.NES;
+  let output = input;
+
+  if (character.bits < 12) {
+    const crusher = createBitcrushNode(context, character.bits);
+    output.connect(crusher);
+    output = crusher;
+  }
+
+  if (settings.drive > 0.01) {
+    const drive = createDriveNode(context, 1 + settings.drive * 5);
+    output.connect(drive);
+    output = drive;
+  }
+
+  output.connect(trackChain);
+  return input;
+}
+
+function scheduleNoiseBurst(
+  context,
+  destination,
+  startTime,
+  duration,
+  tone,
+  level = 0.9,
+  filterType = "highpass",
+) {
   const noise = context.createBufferSource();
   noise.buffer = getNoiseBuffer(context);
 
   const filter = context.createBiquadFilter();
   filter.type = filterType;
-  filter.frequency.value = filterType === "highpass" ? 8000 : 1200;
+  filter.frequency.value = lerp(240, 14000, tone * tone);
+  filter.Q.value = filterType === "bandpass" ? lerp(0.7, 7, tone) : 0.7;
 
   const gain = context.createGain();
-  gain.gain.value = 0.0001;
+  gain.gain.setValueAtTime(Math.max(0.0001, level), startTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
   noise.connect(filter);
   filter.connect(gain);
-  gain.connect(trackChain);
-
-  applyEnvelope(gain, startTime, duration, level, {
-    attack: 0.001,
-    decay: 0.03,
-    sustain: 0.2,
-    release: 0.04,
-  });
+  gain.connect(destination);
 
   noise.start(startTime);
-  noise.stop(startTime + duration + 0.2);
+  noise.stop(startTime + duration + 0.03);
 }
 
-function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9, duration = 0.2) {
+function scheduleTonalDrum(
+  context,
+  destination,
+  { wave, startFrequency, endFrequency, startTime, duration, level },
+) {
+  const osc = context.createOscillator();
+  const gain = context.createGain();
+  osc.type = wave;
+  osc.frequency.setValueAtTime(Math.max(20, startFrequency), startTime);
+  osc.frequency.exponentialRampToValueAtTime(
+    Math.max(20, endFrequency),
+    startTime + Math.min(duration * 0.55, 0.18),
+  );
+  gain.gain.setValueAtTime(Math.max(0.0001, level), startTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+  osc.connect(gain);
+  gain.connect(destination);
+  osc.start(startTime);
+  osc.stop(startTime + duration + 0.03);
+}
+
+function scheduleDrumHit(context, track, trackChain, drum, startTime, level = 0.9, duration = 0.2) {
+  const settings = getDrumVoiceSettings(track, drum);
+  const character = DRUM_CONSOLE_CHARACTER[track?.console] || DRUM_CONSOLE_CHARACTER.NES;
+  const destination = createDrumDestination(context, trackChain, track?.console, settings);
+  const durationScale = clamp(duration / 0.2, 0.55, 1.5);
+  const tail = lerp(0.045, 0.85, settings.decay) * durationScale;
+
   if (drum === "kick") {
-    const osc = context.createOscillator();
-    const gain = context.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(140, startTime);
-    osc.frequency.exponentialRampToValueAtTime(50, startTime + Math.min(0.12, duration));
-    gain.gain.setValueAtTime(level, startTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, startTime + Math.max(0.12, duration));
-    osc.connect(gain);
-    gain.connect(trackChain);
-    osc.start(startTime);
-    osc.stop(startTime + duration);
+    scheduleTonalDrum(context, destination, {
+      wave: character.wave,
+      startFrequency: lerp(80, 340, settings.pitch),
+      endFrequency: lerp(28, 92, settings.pitch),
+      startTime,
+      duration: tail,
+      level,
+    });
+    if (settings.noise > 0.01) {
+      scheduleNoiseBurst(
+        context,
+        destination,
+        startTime,
+        lerp(0.008, 0.06, settings.noise),
+        Math.max(0.7, settings.tone),
+        level * settings.noise * 0.4,
+        "highpass",
+      );
+    }
     return;
   }
 
   if (drum === "snare") {
-    scheduleNoiseBurst(context, trackChain, startTime, duration, "bandpass", level);
+    scheduleNoiseBurst(
+      context,
+      destination,
+      startTime,
+      tail,
+      settings.tone,
+      level * Math.max(0.2, settings.noise),
+      "bandpass",
+    );
+    if (settings.noise < 0.98) {
+      scheduleTonalDrum(context, destination, {
+        wave: character.wave,
+        startFrequency: lerp(110, 420, settings.pitch),
+        endFrequency: lerp(75, 220, settings.pitch),
+        startTime,
+        duration: tail * 0.55,
+        level: level * (1 - settings.noise) * 0.8,
+      });
+    }
     return;
   }
 
   if (drum === "hat") {
-    scheduleNoiseBurst(context, trackChain, startTime, duration, "highpass", level * 0.8);
+    scheduleNoiseBurst(context, destination, startTime, tail * 0.55, settings.tone, level * 0.8, "highpass");
     return;
   }
 
   if (drum === "openhat") {
-    scheduleNoiseBurst(context, trackChain, startTime, duration, "highpass", level * 0.7);
+    scheduleNoiseBurst(context, destination, startTime, tail, settings.tone, level * 0.75, "highpass");
     return;
   }
 
   if (drum === "clap") {
-    scheduleNoiseBurst(context, trackChain, startTime, duration * 0.6, "bandpass", level * 0.6);
-    scheduleNoiseBurst(context, trackChain, startTime + duration * 0.25, duration * 0.6, "bandpass", level * 0.5);
-    scheduleNoiseBurst(context, trackChain, startTime + duration * 0.5, duration * 0.6, "bandpass", level * 0.4);
+    const burst = Math.max(0.025, tail * 0.45);
+    scheduleNoiseBurst(context, destination, startTime, burst, settings.tone, level * 0.62, "bandpass");
+    scheduleNoiseBurst(context, destination, startTime + 0.025, burst, settings.tone, level * 0.5, "bandpass");
+    scheduleNoiseBurst(context, destination, startTime + 0.05, tail, settings.tone, level * 0.38, "bandpass");
     return;
   }
 
   if (drum === "tom") {
-    const osc = context.createOscillator();
-    const gain = context.createGain();
-    osc.type = "triangle";
-    osc.frequency.setValueAtTime(180, startTime);
-    osc.frequency.exponentialRampToValueAtTime(90, startTime + Math.max(0.12, duration));
-    gain.gain.setValueAtTime(level * 0.7, startTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, startTime + Math.max(0.12, duration));
-    osc.connect(gain);
-    gain.connect(trackChain);
-    osc.start(startTime);
-    osc.stop(startTime + duration);
+    scheduleTonalDrum(context, destination, {
+      wave: character.wave,
+      startFrequency: lerp(110, 360, settings.pitch),
+      endFrequency: lerp(55, 190, settings.pitch),
+      startTime,
+      duration: tail,
+      level: level * 0.78,
+    });
     return;
   }
 
   if (drum === "noise") {
-    scheduleNoiseBurst(context, trackChain, startTime, duration, "highpass", level * 0.7);
+    scheduleNoiseBurst(context, destination, startTime, tail, settings.tone, level * 0.75, "highpass");
     return;
   }
 
@@ -662,19 +746,20 @@ function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9, dura
     const gain = context.createGain();
     carrier.type = "sine";
     modulator.type = "sine";
-    carrier.frequency.setValueAtTime(150, startTime);
-    modulator.frequency.setValueAtTime(300, startTime);
-    modGain.gain.setValueAtTime(90, startTime);
+    const frequency = lerp(90, 320, settings.pitch);
+    carrier.frequency.setValueAtTime(frequency, startTime);
+    modulator.frequency.setValueAtTime(frequency * lerp(1.5, 5, settings.tone), startTime);
+    modGain.gain.setValueAtTime(lerp(25, 240, settings.tone), startTime);
     modulator.connect(modGain);
     modGain.connect(carrier.frequency);
-    gain.gain.setValueAtTime(level * 0.6, startTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, startTime + Math.max(0.12, duration));
+    gain.gain.setValueAtTime(level * 0.68, startTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + tail);
     carrier.connect(gain);
-    gain.connect(trackChain);
+    gain.connect(destination);
     carrier.start(startTime);
     modulator.start(startTime);
-    carrier.stop(startTime + duration);
-    modulator.stop(startTime + duration);
+    carrier.stop(startTime + tail + 0.03);
+    modulator.stop(startTime + tail + 0.03);
     return;
   }
 
@@ -684,33 +769,32 @@ function scheduleDrumHit(context, trackChain, drum, startTime, level = 0.9, dura
     const gain = context.createGain();
     osc1.type = "square";
     osc2.type = "square";
-    osc1.frequency.setValueAtTime(540, startTime);
-    osc2.frequency.setValueAtTime(810, startTime);
+    const frequency = lerp(280, 820, settings.pitch);
+    osc1.frequency.setValueAtTime(frequency, startTime);
+    osc2.frequency.setValueAtTime(frequency * lerp(1.35, 1.7, settings.tone), startTime);
     gain.gain.setValueAtTime(level * 0.5, startTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, startTime + Math.max(0.12, duration));
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + tail);
     osc1.connect(gain);
     osc2.connect(gain);
-    gain.connect(trackChain);
+    gain.connect(destination);
     osc1.start(startTime);
     osc2.start(startTime);
-    osc1.stop(startTime + duration);
-    osc2.stop(startTime + duration);
+    osc1.stop(startTime + tail + 0.03);
+    osc2.stop(startTime + tail + 0.03);
     return;
   }
 
-  const osc = context.createOscillator();
-  const gain = context.createGain();
-  osc.type = "triangle";
-  osc.frequency.value = 320;
-  gain.gain.setValueAtTime(level * 0.5, startTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, startTime + Math.max(0.08, duration));
-  osc.connect(gain);
-  gain.connect(trackChain);
-  osc.start(startTime);
-  osc.stop(startTime + duration);
+  scheduleTonalDrum(context, destination, {
+    wave: character.wave,
+    startFrequency: lerp(170, 760, settings.pitch),
+    endFrequency: lerp(120, 440, settings.pitch),
+    startTime,
+    duration: tail,
+    level: level * 0.65,
+  });
 }
 
-function scheduleDrumPattern(context, trackChain, block, secondsPerBeat, startOffset) {
+function scheduleDrumPattern(context, track, trackChain, block, secondsPerBeat, startOffset) {
   const rows = Array.isArray(block.pattern?.rows) ? block.pattern.rows : DEFAULT_DRUM_ROWS;
   const pattern = ensureDrumPattern(block, rows);
 
@@ -718,7 +802,7 @@ function scheduleDrumPattern(context, trackChain, block, secondsPerBeat, startOf
     const time = startOffset + (block.startBeat + event.start) * secondsPerBeat;
     const volume = Number.isFinite(pattern.volumes?.[event.drum]) ? pattern.volumes[event.drum] : 0.9;
     const duration = Math.max(0.05, event.duration || 0.25) * secondsPerBeat;
-    scheduleDrumHit(context, trackChain, event.drum, time, volume, duration);
+    scheduleDrumHit(context, track, trackChain, event.drum, time, volume, duration);
   });
 }
 
@@ -790,7 +874,7 @@ export function scheduleProject(context, project, options = {}) {
           scheduleSynthNote(context, track, trackOutput.input, note, noteStart, duration);
         });
       } else {
-        scheduleDrumPattern(context, trackOutput.input, block, secondsPerBeat, startTime);
+        scheduleDrumPattern(context, track, trackOutput.input, block, secondsPerBeat, startTime);
       }
     });
   });
@@ -978,7 +1062,7 @@ export class AudioEngine {
       const now = this.context.currentTime + 0.01;
       const master = this.previewBus || this.masterGain;
       const trackOutput = createTrackOutput(this.context, master, track.volume ?? 0.8);
-      scheduleDrumHit(this.context, trackOutput.input, drum, now, level);
+      scheduleDrumHit(this.context, track, trackOutput.input, drum, now, level);
     });
   }
 
@@ -1004,7 +1088,7 @@ export class AudioEngine {
           });
         } else {
           const previewBlock = { ...block, startBeat: 0 };
-          scheduleDrumPattern(this.context, trackOutput.input, previewBlock, secondsPerBeat, loopStart);
+          scheduleDrumPattern(this.context, track, trackOutput.input, previewBlock, secondsPerBeat, loopStart);
         }
       };
 

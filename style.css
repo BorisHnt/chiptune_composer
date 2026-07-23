@@ -574,19 +574,35 @@ main {
 }
 
 .drum-device {
-  grid-template-columns: 150px 150px minmax(320px, 1fr);
+  min-width: 940px;
+  max-width: 1120px;
+  grid-template-columns: 150px 260px minmax(500px, 1fr);
+}
+
+.drum-kit-browser {
+  padding: var(--space-sm);
+  border-right: var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.drum-kit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .drum-kit-panel {
-  padding: var(--space-sm);
+  flex: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-  gap: var(--space-sm);
+  grid-template-columns: repeat(3, minmax(58px, 1fr));
+  gap: var(--space-xs);
   align-content: center;
 }
 
 .drum-device-pad {
-  min-height: 56px;
+  min-height: 34px;
   border: var(--border-soft);
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.72);
@@ -597,8 +613,69 @@ main {
 }
 
 .drum-device-pad:hover,
-.drum-device-pad:active {
+.drum-device-pad:active,
+.drum-device-pad.is-selected {
   background: rgba(231, 62, 117, 0.16);
+}
+
+.drum-device-pad.is-selected {
+  border-color: var(--color-rose);
+}
+
+.drum-voice-editor {
+  min-width: 0;
+  padding: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.drum-voice-header {
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.drum-voice-name {
+  min-width: 72px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.drum-voice-status {
+  margin-right: auto;
+  font-size: 0.68rem;
+  color: rgba(70, 66, 94, 0.68);
+}
+
+.drum-param-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(72px, 1fr));
+  gap: var(--space-sm);
+}
+
+.drum-param-control {
+  min-width: 0;
+  border-left: var(--border-soft);
+  padding-left: var(--space-sm);
+  display: grid;
+  grid-template-rows: 18px 1fr 18px;
+  align-items: center;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.68rem;
+}
+
+.drum-param-control input {
+  width: 100%;
+  min-width: 0;
+}
+
+.drum-param-value {
+  color: rgba(70, 66, 94, 0.72);
+  font-size: 0.62rem;
 }
 
 .console-picker-panel {
