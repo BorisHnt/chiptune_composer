@@ -10,6 +10,7 @@ import {
   createTrack,
   MAX_TRACKS,
   DEFAULT_ADSR,
+  DRUM_KITS,
 } from "./modules/dataModel.js";
 import { CONSOLE_WAVES } from "./modules/dataModel.js";
 import { AudioEngine } from "./modules/audioEngine.js";
@@ -57,9 +58,10 @@ const ui = {
   confirmOkBtn: document.getElementById("confirmOkBtn"),
   oscilloscopeCanvas: document.getElementById("oscilloscopeCanvas"),
   deviceTrackName: document.getElementById("deviceTrackName"),
-  addSynthDeviceBtn: document.getElementById("addSynthDeviceBtn"),
+  addDeviceBtn: document.getElementById("addDeviceBtn"),
   deviceContent: document.getElementById("deviceContent"),
   consolePickerOverlay: document.getElementById("consolePickerOverlay"),
+  consolePickerTitle: document.getElementById("consolePickerTitle"),
   closeConsolePickerBtn: document.getElementById("closeConsolePickerBtn"),
   consolePickerList: document.getElementById("consolePickerList"),
 };
@@ -162,7 +164,7 @@ const timeline = new Timeline({
     if (!track) return;
     const newBlock = createBlock({ startBeat: cursorBeat, length: 4, type: track.type });
     if (track.type === "drums") {
-      ensureDrumPattern(newBlock, 16, getDrumRowsForConsole(track.console));
+      ensureDrumPattern(newBlock, getDrumRowsForConsole(track.console));
     }
     track.blocks.push(newBlock);
     commitChange();
@@ -175,8 +177,7 @@ const timeline = new Timeline({
     if (track.type === "drums" && changes.console && changes.console !== previousConsole) {
       const rows = getDrumRowsForConsole(track.console);
       track.blocks.forEach((block) => {
-        const steps = Number.isFinite(block.pattern?.steps) ? block.pattern.steps : 16;
-        ensureDrumPattern(block, steps, rows);
+        ensureDrumPattern(block, rows);
       });
     }
     const isMuteSolo = Object.prototype.hasOwnProperty.call(changes, "mute") ||
@@ -361,24 +362,94 @@ function createAdsrSlider(track, key, labelText, min, max, step) {
   return wrap;
 }
 
+function setTrackConsole(track, consoleName) {
+  if (track.type === "drums") {
+    if (!DRUM_KITS[consoleName]) return;
+    track.console = consoleName;
+    const rows = getDrumRowsForConsole(consoleName);
+    track.blocks.forEach((block) => {
+      ensureDrumPattern(block, rows);
+    });
+    return;
+  }
+
+  const waves = CONSOLE_WAVES[consoleName] || [];
+  if (!waves.length) return;
+  track.console = consoleName;
+  track.waveform = waves[0];
+  ensureTrackAdsr(track);
+}
+
+function createConsoleButton() {
+  const consoleButton = document.createElement("button");
+  consoleButton.type = "button";
+  consoleButton.className = "btn tiny";
+  consoleButton.textContent = "Console";
+  consoleButton.addEventListener("click", openConsolePicker);
+  return consoleButton;
+}
+
+function renderDrumDevice(track) {
+  const rows = getDrumRowsForConsole(track.console);
+  const drumBox = document.createElement("div");
+  drumBox.className = "synth-device drum-device";
+
+  const deviceHead = document.createElement("div");
+  deviceHead.className = "synth-device-head";
+
+  const title = document.createElement("div");
+  title.className = "synth-device-title";
+  title.textContent = track.console || "Drums";
+
+  const type = document.createElement("div");
+  type.className = "synth-device-type";
+  type.textContent = "Chiptune Drums";
+
+  deviceHead.appendChild(title);
+  deviceHead.appendChild(type);
+
+  const deviceControls = document.createElement("div");
+  deviceControls.className = "synth-device-controls";
+  deviceControls.appendChild(createConsoleButton());
+
+  const kitPanel = document.createElement("div");
+  kitPanel.className = "drum-kit-panel";
+  rows.forEach((drum) => {
+    const pad = document.createElement("button");
+    pad.type = "button";
+    pad.className = "drum-device-pad";
+    pad.textContent = drum;
+    pad.title = `Preview ${drum}`;
+    pad.addEventListener("click", () => {
+      audioEngine.previewDrum(track, drum, 0.9);
+    });
+    kitPanel.appendChild(pad);
+  });
+
+  drumBox.appendChild(deviceHead);
+  drumBox.appendChild(deviceControls);
+  drumBox.appendChild(kitPanel);
+  ui.deviceContent.appendChild(drumBox);
+}
+
 function renderDevicePanel() {
   const track = getSelectedTrack();
   ui.deviceContent.innerHTML = "";
   ui.deviceTrackName.textContent = getTrackLabel(track);
 
   if (!track) {
-    ui.addSynthDeviceBtn.disabled = true;
+    ui.addDeviceBtn.disabled = true;
     ui.deviceContent.innerHTML = '<div class="device-empty">No track selected</div>';
     return;
   }
 
-  if (track.type !== "synth") {
-    ui.addSynthDeviceBtn.disabled = true;
-    ui.deviceContent.innerHTML = '<div class="device-empty">Drum track selected</div>';
+  ui.addDeviceBtn.disabled = false;
+
+  if (track.type === "drums") {
+    renderDrumDevice(track);
     return;
   }
 
-  ui.addSynthDeviceBtn.disabled = false;
   const adsr = ensureTrackAdsr(track);
   const waves = CONSOLE_WAVES[track.console] || [];
 
@@ -412,15 +483,9 @@ function renderDevicePanel() {
     commitChange({ reRenderTimeline: false, reRenderEditors: false });
   });
 
-  const consoleButton = document.createElement("button");
-  consoleButton.type = "button";
-  consoleButton.className = "btn tiny";
-  consoleButton.textContent = "Console";
-  consoleButton.addEventListener("click", openConsolePicker);
-
   const deviceControls = document.createElement("div");
   deviceControls.className = "synth-device-controls";
-  deviceControls.appendChild(consoleButton);
+  deviceControls.appendChild(createConsoleButton());
   deviceControls.appendChild(createDeviceField("Wave", waveSelect));
 
   const adsrPanel = document.createElement("div");
@@ -440,10 +505,13 @@ function renderDevicePanel() {
 
 function openConsolePicker() {
   const track = getSelectedTrack();
-  if (!track || track.type !== "synth") return;
+  if (!track) return;
   ui.consolePickerList.innerHTML = "";
+  ui.consolePickerTitle.textContent =
+    track.type === "drums" ? "Choose Drum Console" : "Choose Synth Console";
+  const consoleOptions = track.type === "drums" ? DRUM_KITS : CONSOLE_WAVES;
 
-  Object.entries(CONSOLE_WAVES).forEach(([consoleName, waves]) => {
+  Object.entries(consoleOptions).forEach(([consoleName, sounds]) => {
     const option = document.createElement("button");
     option.type = "button";
     option.className = "console-option";
@@ -455,15 +523,12 @@ function openConsolePicker() {
 
     const detail = document.createElement("span");
     detail.className = "console-option-detail";
-    detail.textContent = waves.join(", ");
+    detail.textContent = sounds.join(", ");
 
     option.appendChild(title);
     option.appendChild(detail);
     option.addEventListener("click", () => {
-      const waveOptions = CONSOLE_WAVES[consoleName] || [];
-      track.console = consoleName;
-      track.waveform = waveOptions[0] || track.waveform;
-      ensureTrackAdsr(track);
+      setTrackConsole(track, consoleName);
       closeConsolePicker();
       commitChange();
     });
@@ -942,7 +1007,7 @@ ui.confirmOkBtn.addEventListener("click", () => {
   closeConfirm();
 });
 
-ui.addSynthDeviceBtn.addEventListener("click", openConsolePicker);
+ui.addDeviceBtn.addEventListener("click", openConsolePicker);
 ui.closeConsolePickerBtn.addEventListener("click", closeConsolePicker);
 
 ui.consolePickerOverlay.addEventListener("pointerdown", (event) => {

@@ -110,7 +110,13 @@
             <div class="device-label">Track</div>
             <div id="deviceTrackName" class="device-track-name">Track 1</div>
           </div>
-          <button id="addSynthDeviceBtn" class="device-add" type="button">+</button>
+          <button
+            id="addDeviceBtn"
+            class="device-add"
+            type="button"
+            aria-label="Choose console"
+            title="Choose console"
+          >+</button>
         </div>
         <div id="deviceContent" class="device-content"></div>
       </section>
@@ -119,7 +125,7 @@
     <div id="consolePickerOverlay" class="overlay hidden">
       <div class="overlay-panel console-picker-panel">
         <div class="overlay-header">
-          <div>Choose Console</div>
+          <div id="consolePickerTitle">Choose Console</div>
           <button id="closeConsolePickerBtn" class="btn">Close</button>
         </div>
         <div id="consolePickerList" class="console-picker-list"></div>

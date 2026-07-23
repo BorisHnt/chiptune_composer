@@ -573,6 +573,34 @@ main {
   color: rgba(70, 66, 94, 0.72);
 }
 
+.drum-device {
+  grid-template-columns: 150px 150px minmax(320px, 1fr);
+}
+
+.drum-kit-panel {
+  padding: var(--space-sm);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: var(--space-sm);
+  align-content: center;
+}
+
+.drum-device-pad {
+  min-height: 56px;
+  border: var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.72);
+  color: inherit;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.drum-device-pad:hover,
+.drum-device-pad:active {
+  background: rgba(231, 62, 117, 0.16);
+}
+
 .console-picker-panel {
   max-width: 760px;
   height: auto;

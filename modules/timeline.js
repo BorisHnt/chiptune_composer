@@ -1,4 +1,4 @@
-import { CONSOLE_WAVES, getProjectEndBeat } from "./dataModel.js";
+import { getProjectEndBeat } from "./dataModel.js";
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
@@ -196,21 +196,6 @@ export class Timeline {
     const controls = document.createElement("div");
     controls.className = "track-controls";
 
-    let drumKitSelect = null;
-    if (track.type === "drums") {
-      drumKitSelect = document.createElement("select");
-      Object.keys(CONSOLE_WAVES).forEach((consoleName) => {
-        const option = document.createElement("option");
-        option.value = consoleName;
-        option.textContent = consoleName;
-        if (consoleName === track.console) option.selected = true;
-        drumKitSelect.appendChild(option);
-      });
-      drumKitSelect.addEventListener("change", () => {
-        this.onTrackChange?.(track.id, { console: drumKitSelect.value });
-      });
-    }
-
     const volumeInput = document.createElement("input");
     volumeInput.type = "range";
     volumeInput.min = 0;
@@ -264,9 +249,6 @@ export class Timeline {
     muteSoloActions.appendChild(muteBtn);
     muteSoloActions.appendChild(soloBtn);
 
-    if (drumKitSelect) {
-      controls.appendChild(this.wrapControl("Kit", drumKitSelect));
-    }
     controls.appendChild(this.wrapControl("Vol", volumeInput));
     controls.appendChild(this.wrapControl("Pan", panInput));
     controls.appendChild(this.wrapControl("Oct", octaveInput));
