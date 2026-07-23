@@ -730,12 +730,12 @@ main {
 
 .overlay.chip-drum-overlay {
   height: 100vh;
-  padding: 5vh var(--space-lg);
+  padding: 14vh var(--space-md);
 }
 
 .overlay-panel.chip-drum-window {
-  width: min(1180px, 100%);
-  height: 90vh;
+  width: min(1320px, 100%);
+  height: 72vh;
   margin: 0 auto;
   overflow: hidden;
 }
