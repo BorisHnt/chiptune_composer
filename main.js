@@ -9,6 +9,7 @@ import {
   getDrumRowsForConsole,
   createTrack,
   MAX_TRACKS,
+  DEFAULT_ADSR,
 } from "./modules/dataModel.js";
 import { CONSOLE_WAVES } from "./modules/dataModel.js";
 import { AudioEngine } from "./modules/audioEngine.js";
@@ -55,6 +56,12 @@ const ui = {
   confirmCancelBtn: document.getElementById("confirmCancelBtn"),
   confirmOkBtn: document.getElementById("confirmOkBtn"),
   oscilloscopeCanvas: document.getElementById("oscilloscopeCanvas"),
+  deviceTrackName: document.getElementById("deviceTrackName"),
+  addSynthDeviceBtn: document.getElementById("addSynthDeviceBtn"),
+  deviceContent: document.getElementById("deviceContent"),
+  consolePickerOverlay: document.getElementById("consolePickerOverlay"),
+  closeConsolePickerBtn: document.getElementById("closeConsolePickerBtn"),
+  consolePickerList: document.getElementById("consolePickerList"),
 };
 
 const STORAGE_KEY = "chiptune_composer_autosave_v1";
@@ -100,6 +107,7 @@ let isPlaying = false;
 let cursorBeat = 0;
 let activeTrackId = null;
 let activeBlockId = null;
+let selectedTrackId = project.tracks[0]?.id || null;
 let previewEnabled = false;
 let animationFrame = null;
 let playbackStopTimer = null;
@@ -202,9 +210,16 @@ const timeline = new Timeline({
         if (activeTrackId === trackId) {
           closeEditor();
         }
+        if (selectedTrackId === trackId) {
+          selectedTrackId = project.tracks[0]?.id || null;
+          timeline.setSelectedTrackId(selectedTrackId);
+        }
         commitChange();
       },
     });
+  },
+  onTrackSelect: (trackId) => {
+    selectTrack(trackId);
   },
   onCursorChange: (beat) => {
     cursorBeat = beat;
@@ -278,10 +293,196 @@ function trimNotesToBlock(block) {
     .filter((note) => note.duration > 0);
 }
 
+function getSelectedTrack() {
+  return project.tracks.find((track) => track.id === selectedTrackId) || project.tracks[0] || null;
+}
+
+function selectTrack(trackId) {
+  if (!project.tracks.some((track) => track.id === trackId)) return;
+  selectedTrackId = trackId;
+  timeline.setSelectedTrackId(selectedTrackId);
+  renderDevicePanel();
+}
+
+function ensureTrackAdsr(track) {
+  if (!track.adsr || typeof track.adsr !== "object") {
+    track.adsr = { ...DEFAULT_ADSR };
+  }
+  return track.adsr;
+}
+
+function getTrackLabel(track) {
+  const index = project.tracks.findIndex((item) => item.id === track?.id);
+  if (index === -1) return "No Track";
+  return `Track ${index + 1} - ${track.type}`;
+}
+
+function createDeviceField(labelText, control) {
+  const label = document.createElement("label");
+  label.className = "device-field";
+  const labelSpan = document.createElement("span");
+  labelSpan.textContent = labelText;
+  label.appendChild(labelSpan);
+  label.appendChild(control);
+  return label;
+}
+
+function createAdsrSlider(track, key, labelText, min, max, step) {
+  const adsr = ensureTrackAdsr(track);
+  const wrap = document.createElement("label");
+  wrap.className = "adsr-control";
+
+  const title = document.createElement("span");
+  title.textContent = labelText;
+
+  const value = document.createElement("span");
+  value.className = "adsr-value";
+  value.textContent = Number(adsr[key]).toFixed(key === "sustain" ? 2 : 3);
+
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = min;
+  slider.max = max;
+  slider.step = step;
+  slider.value = adsr[key];
+  slider.addEventListener("input", () => {
+    adsr[key] = parseFloat(slider.value);
+    value.textContent = Number(adsr[key]).toFixed(key === "sustain" ? 2 : 3);
+    commitChange({
+      reRenderTimeline: false,
+      reRenderEditors: false,
+      reRenderDevice: false,
+    });
+  });
+
+  wrap.appendChild(title);
+  wrap.appendChild(slider);
+  wrap.appendChild(value);
+  return wrap;
+}
+
+function renderDevicePanel() {
+  const track = getSelectedTrack();
+  ui.deviceContent.innerHTML = "";
+  ui.deviceTrackName.textContent = getTrackLabel(track);
+
+  if (!track) {
+    ui.addSynthDeviceBtn.disabled = true;
+    ui.deviceContent.innerHTML = '<div class="device-empty">No track selected</div>';
+    return;
+  }
+
+  if (track.type !== "synth") {
+    ui.addSynthDeviceBtn.disabled = true;
+    ui.deviceContent.innerHTML = '<div class="device-empty">Drum track selected</div>';
+    return;
+  }
+
+  ui.addSynthDeviceBtn.disabled = false;
+  const adsr = ensureTrackAdsr(track);
+  const waves = CONSOLE_WAVES[track.console] || [];
+
+  const synthBox = document.createElement("div");
+  synthBox.className = "synth-device";
+
+  const deviceHead = document.createElement("div");
+  deviceHead.className = "synth-device-head";
+
+  const title = document.createElement("div");
+  title.className = "synth-device-title";
+  title.textContent = track.console || "Synth";
+
+  const type = document.createElement("div");
+  type.className = "synth-device-type";
+  type.textContent = "Chiptune Synth";
+
+  deviceHead.appendChild(title);
+  deviceHead.appendChild(type);
+
+  const waveSelect = document.createElement("select");
+  waves.forEach((wave) => {
+    const option = document.createElement("option");
+    option.value = wave;
+    option.textContent = wave;
+    if (wave === track.waveform) option.selected = true;
+    waveSelect.appendChild(option);
+  });
+  waveSelect.addEventListener("change", () => {
+    track.waveform = waveSelect.value;
+    commitChange({ reRenderTimeline: false, reRenderEditors: false });
+  });
+
+  const consoleButton = document.createElement("button");
+  consoleButton.type = "button";
+  consoleButton.className = "btn tiny";
+  consoleButton.textContent = "Console";
+  consoleButton.addEventListener("click", openConsolePicker);
+
+  const deviceControls = document.createElement("div");
+  deviceControls.className = "synth-device-controls";
+  deviceControls.appendChild(consoleButton);
+  deviceControls.appendChild(createDeviceField("Wave", waveSelect));
+
+  const adsrPanel = document.createElement("div");
+  adsrPanel.className = "adsr-panel";
+  adsrPanel.appendChild(createAdsrSlider(track, "attack", "A", 0, 1, 0.001));
+  adsrPanel.appendChild(createAdsrSlider(track, "decay", "D", 0, 1, 0.001));
+  adsrPanel.appendChild(createAdsrSlider(track, "sustain", "S", 0, 1, 0.01));
+  adsrPanel.appendChild(createAdsrSlider(track, "release", "R", 0, 2, 0.001));
+
+  synthBox.appendChild(deviceHead);
+  synthBox.appendChild(deviceControls);
+  synthBox.appendChild(adsrPanel);
+  ui.deviceContent.appendChild(synthBox);
+
+  track.adsr = adsr;
+}
+
+function openConsolePicker() {
+  const track = getSelectedTrack();
+  if (!track || track.type !== "synth") return;
+  ui.consolePickerList.innerHTML = "";
+
+  Object.entries(CONSOLE_WAVES).forEach(([consoleName, waves]) => {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "console-option";
+    option.classList.toggle("is-selected", consoleName === track.console);
+
+    const title = document.createElement("span");
+    title.className = "console-option-title";
+    title.textContent = consoleName;
+
+    const detail = document.createElement("span");
+    detail.className = "console-option-detail";
+    detail.textContent = waves.join(", ");
+
+    option.appendChild(title);
+    option.appendChild(detail);
+    option.addEventListener("click", () => {
+      const waveOptions = CONSOLE_WAVES[consoleName] || [];
+      track.console = consoleName;
+      track.waveform = waveOptions[0] || track.waveform;
+      ensureTrackAdsr(track);
+      closeConsolePicker();
+      commitChange();
+    });
+
+    ui.consolePickerList.appendChild(option);
+  });
+
+  ui.consolePickerOverlay.classList.remove("hidden");
+}
+
+function closeConsolePicker() {
+  ui.consolePickerOverlay.classList.add("hidden");
+}
+
 function commitChange(options = {}) {
   const {
     reRenderTimeline = true,
     reRenderEditors = true,
+    reRenderDevice = true,
     record = true,
     shouldRestartPlayback = record,
   } = options;
@@ -291,10 +492,14 @@ function commitChange(options = {}) {
   }
   if (reRenderTimeline) {
     timeline.setProject(project);
+    timeline.setSelectedTrackId(selectedTrackId);
   }
   ui.addTrackBtn.disabled = project.tracks.length >= MAX_TRACKS;
   if (reRenderEditors && activeBlockId) {
     refreshEditor();
+  }
+  if (reRenderDevice) {
+    renderDevicePanel();
   }
   if (isPlaying && shouldRestartPlayback && typeof restartPlayback === "function") {
     restartPlayback();
@@ -303,12 +508,17 @@ function commitChange(options = {}) {
 
 function applyState(nextState) {
   project = nextState;
+  if (!project.tracks.some((track) => track.id === selectedTrackId)) {
+    selectedTrackId = project.tracks[0]?.id || null;
+  }
   ui.projectNameInput.value = project.name || "Untitled Project";
   ui.masterVolumeInput.value = Number.isFinite(project.masterVolume) ? project.masterVolume : 0.9;
   audioEngine.setMasterVolume(project.masterVolume ?? 0.9);
   scheduleCacheSave();
   ui.bpmInput.value = project.bpm;
   timeline.setProject(project);
+  timeline.setSelectedTrackId(selectedTrackId);
+  renderDevicePanel();
   ui.addTrackBtn.disabled = project.tracks.length >= MAX_TRACKS;
   if (activeBlockId) {
     const track = getActiveTrack();
@@ -331,6 +541,7 @@ function restartPlayback() {
 }
 
 function openEditor(trackId, blockId) {
+  selectTrack(trackId);
   activeTrackId = trackId;
   activeBlockId = blockId;
   previewEnabled = false;
@@ -544,6 +755,7 @@ ui.addTrackBtn.addEventListener("click", () => {
   const type = ui.trackTypeSelect?.value === "drums" ? "drums" : "synth";
   const newTrack = createTrack(project.tracks.length, { type });
   project.tracks.push(newTrack);
+  selectedTrackId = newTrack.id;
   commitChange();
 });
 
@@ -730,6 +942,15 @@ ui.confirmOkBtn.addEventListener("click", () => {
   closeConfirm();
 });
 
+ui.addSynthDeviceBtn.addEventListener("click", openConsolePicker);
+ui.closeConsolePickerBtn.addEventListener("click", closeConsolePicker);
+
+ui.consolePickerOverlay.addEventListener("pointerdown", (event) => {
+  if (event.target === ui.consolePickerOverlay) {
+    closeConsolePicker();
+  }
+});
+
 ui.confirmOverlay.addEventListener("pointerdown", (event) => {
   if (event.target === ui.confirmOverlay) {
     closeConfirm();
@@ -766,3 +987,6 @@ if (project.tracks[0].blocks.length === 0) {
   history.push(project);
   timeline.setProject(project);
 }
+
+timeline.setSelectedTrackId(selectedTrackId);
+renderDevicePanel();

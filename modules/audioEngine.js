@@ -1,16 +1,9 @@
-import { DEFAULT_DRUM_ROWS, ensureDrumPattern, getProjectEndBeat } from "./dataModel.js";
+import { DEFAULT_ADSR, DEFAULT_DRUM_ROWS, ensureDrumPattern, getProjectEndBeat } from "./dataModel.js";
 
 const PULSE_WAVES = new Map();
 const NOISE_BUFFERS = new Map();
 const WAVETABLE_BUFFERS = new Map();
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-
-const DEFAULT_ADSR = {
-  attack: 0.01,
-  decay: 0.05,
-  sustain: 0.7,
-  release: 0.08,
-};
 
 const midiToFrequency = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
 
@@ -561,7 +554,8 @@ function scheduleSynthNote(context, track, trackChain, note, startTime, duration
   }
   voice.osc.connect(noteGain);
 
-  applyEnvelope(noteGain, startTime, duration, velocity);
+  const adsr = track.adsr || DEFAULT_ADSR;
+  applyEnvelope(noteGain, startTime, duration, velocity, adsr);
 
   if (typeof voice.start === "function") {
     voice.start(startTime);
@@ -574,7 +568,7 @@ function scheduleSynthNote(context, track, trackChain, note, startTime, duration
     });
   }
 
-  voice.stop(startTime + duration + DEFAULT_ADSR.release + 0.1);
+  voice.stop(startTime + duration + (adsr.release ?? DEFAULT_ADSR.release) + 0.1);
 }
 
 function scheduleNoiseBurst(context, trackChain, startTime, duration, filterType = "highpass", level = 0.9) {

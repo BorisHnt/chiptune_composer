@@ -17,6 +17,7 @@ export class Timeline {
     onCursorChange,
     onTrackMove,
     onTrackDelete,
+    onTrackSelect,
   }) {
     this.container = container;
     this.project = project;
@@ -31,10 +32,12 @@ export class Timeline {
     this.onCursorChange = onCursorChange;
     this.onTrackMove = onTrackMove;
     this.onTrackDelete = onTrackDelete;
+    this.onTrackSelect = onTrackSelect;
     this.blockElements = new Map();
     this.playheadEl = null;
     this.cursorEl = null;
     this.cursorBeat = 0;
+    this.selectedTrackId = project.tracks[0]?.id || null;
 
     this.render();
   }
@@ -52,6 +55,13 @@ export class Timeline {
   setZoom(zoom) {
     this.zoom = zoom;
     this.render();
+  }
+
+  setSelectedTrackId(trackId) {
+    this.selectedTrackId = trackId;
+    this.container.querySelectorAll("[data-track-id]").forEach((element) => {
+      element.classList.toggle("is-selected", element.dataset.trackId === trackId);
+    });
   }
 
   setCursor(beat) {
@@ -121,9 +131,11 @@ export class Timeline {
 
       const lane = document.createElement("div");
       lane.className = "track-lane";
+      lane.classList.toggle("is-selected", track.id === this.selectedTrackId);
       lane.dataset.trackId = track.id;
       lane.style.width = `${laneWidth}px`;
       lane.addEventListener("pointerdown", (event) => {
+        this.onTrackSelect?.(track.id);
         if (event.target.closest(".block")) return;
         const rect = lane.getBoundingClientRect();
         const beat = this.quantize(this.pxToBeat(event.clientX - rect.left));
@@ -148,7 +160,11 @@ export class Timeline {
   createTrackHeader(track, index) {
     const header = document.createElement("div");
     header.className = "track-header";
+    header.classList.toggle("is-selected", track.id === this.selectedTrackId);
     header.dataset.trackId = track.id;
+    header.addEventListener("pointerdown", () => {
+      this.onTrackSelect?.(track.id);
+    });
 
     const title = document.createElement("div");
     title.className = "track-title";
@@ -180,47 +196,18 @@ export class Timeline {
     const controls = document.createElement("div");
     controls.className = "track-controls";
 
-    const consoleSelect = document.createElement("select");
-    Object.keys(CONSOLE_WAVES).forEach((consoleName) => {
-      const option = document.createElement("option");
-      option.value = consoleName;
-      option.textContent = consoleName;
-      if (consoleName === track.console) option.selected = true;
-      consoleSelect.appendChild(option);
-    });
-
-    let waveformSelect = null;
-    const updateWaveforms = () => {
-      if (!waveformSelect) return;
-      waveformSelect.innerHTML = "";
-      (CONSOLE_WAVES[consoleSelect.value] || []).forEach((wave) => {
+    let drumKitSelect = null;
+    if (track.type === "drums") {
+      drumKitSelect = document.createElement("select");
+      Object.keys(CONSOLE_WAVES).forEach((consoleName) => {
         const option = document.createElement("option");
-        option.value = wave;
-        option.textContent = wave;
-        if (wave === track.waveform) option.selected = true;
-        waveformSelect.appendChild(option);
+        option.value = consoleName;
+        option.textContent = consoleName;
+        if (consoleName === track.console) option.selected = true;
+        drumKitSelect.appendChild(option);
       });
-    };
-
-    if (track.type !== "drums") {
-      waveformSelect = document.createElement("select");
-      updateWaveforms();
-    }
-
-    consoleSelect.addEventListener("change", () => {
-      const consoleValue = consoleSelect.value;
-      if (track.type === "drums") {
-        this.onTrackChange?.(track.id, { console: consoleValue });
-        return;
-      }
-      const waveOptions = CONSOLE_WAVES[consoleValue] || [];
-      const waveform = waveOptions[0] || "square";
-      this.onTrackChange?.(track.id, { console: consoleValue, waveform });
-    });
-
-    if (waveformSelect) {
-      waveformSelect.addEventListener("change", () => {
-        this.onTrackChange?.(track.id, { waveform: waveformSelect.value });
+      drumKitSelect.addEventListener("change", () => {
+        this.onTrackChange?.(track.id, { console: drumKitSelect.value });
       });
     }
 
@@ -272,15 +259,18 @@ export class Timeline {
       this.onTrackChange?.(track.id, { solo: !track.solo });
     });
 
-    controls.appendChild(this.wrapControl(track.type === "drums" ? "Kit" : "Console", consoleSelect));
-    if (waveformSelect) {
-      controls.appendChild(this.wrapControl("Wave", waveformSelect));
+    const muteSoloActions = document.createElement("div");
+    muteSoloActions.className = "mute-solo-actions";
+    muteSoloActions.appendChild(muteBtn);
+    muteSoloActions.appendChild(soloBtn);
+
+    if (drumKitSelect) {
+      controls.appendChild(this.wrapControl("Kit", drumKitSelect));
     }
     controls.appendChild(this.wrapControl("Vol", volumeInput));
     controls.appendChild(this.wrapControl("Pan", panInput));
     controls.appendChild(this.wrapControl("Oct", octaveInput));
-    controls.appendChild(muteBtn);
-    controls.appendChild(soloBtn);
+    controls.appendChild(muteSoloActions);
 
     header.appendChild(title);
     const actions = document.createElement("div");
@@ -307,6 +297,9 @@ export class Timeline {
     blockEl.dataset.blockId = block.id;
     blockEl.style.left = `${this.beatToPx(block.startBeat)}px`;
     blockEl.style.width = `${this.beatToPx(block.length)}px`;
+    blockEl.addEventListener("pointerdown", () => {
+      this.onTrackSelect?.(track.id);
+    });
 
     const header = document.createElement("div");
     header.className = "block-header";

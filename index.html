@@ -103,6 +103,27 @@
           <div id="timeline"></div>
         </section>
       </main>
+
+      <section id="deviceBar" class="device-bar">
+        <div class="device-strip">
+          <div class="device-track">
+            <div class="device-label">Track</div>
+            <div id="deviceTrackName" class="device-track-name">Track 1</div>
+          </div>
+          <button id="addSynthDeviceBtn" class="device-add" type="button">+</button>
+        </div>
+        <div id="deviceContent" class="device-content"></div>
+      </section>
+    </div>
+
+    <div id="consolePickerOverlay" class="overlay hidden">
+      <div class="overlay-panel console-picker-panel">
+        <div class="overlay-header">
+          <div>Choose Console</div>
+          <button id="closeConsolePickerBtn" class="btn">Close</button>
+        </div>
+        <div id="consolePickerList" class="console-picker-list"></div>
+      </div>
     </div>
 
     <div id="editorOverlay" class="overlay hidden">

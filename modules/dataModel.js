@@ -43,11 +43,18 @@ export const CONSOLE_WAVES = {
 
 export const MAX_TRACKS = 16;
 
+export const DEFAULT_ADSR = {
+  attack: 0.01,
+  decay: 0.05,
+  sustain: 0.7,
+  release: 0.08,
+};
+
 const DEFAULT_TRACKS = [
   { type: "synth", console: "NES", waveform: "pulse25" },
   { type: "synth", console: "C64", waveform: "triangle" },
   { type: "synth", console: "Atari", waveform: "square" },
-  { type: "synth", console: "Sega", waveform: "fm" },
+  { type: "synth", console: "Sega", waveform: "fm1" },
   { type: "drums", console: "NES", waveform: "noise" },
 ];
 
@@ -88,6 +95,7 @@ export function createTrack(index, options = {}) {
     volume: 0.8,
     pan: 0,
     octave: 0,
+    adsr: { ...DEFAULT_ADSR },
     mute: false,
     solo: false,
     blocks: [],
@@ -115,6 +123,16 @@ function normalizeNote(note) {
     start: Number.isFinite(safe.start) ? Math.max(0, safe.start) : 0,
     duration: Number.isFinite(safe.duration) ? Math.max(0.125, safe.duration) : 0.25,
     velocity: Number.isFinite(safe.velocity) ? clamp(safe.velocity, 0, 1) : 0.9,
+  };
+}
+
+function normalizeAdsr(adsr) {
+  const safe = isObject(adsr) ? adsr : {};
+  return {
+    attack: Number.isFinite(safe.attack) ? clamp(safe.attack, 0, 2) : DEFAULT_ADSR.attack,
+    decay: Number.isFinite(safe.decay) ? clamp(safe.decay, 0, 2) : DEFAULT_ADSR.decay,
+    sustain: Number.isFinite(safe.sustain) ? clamp(safe.sustain, 0, 1) : DEFAULT_ADSR.sustain,
+    release: Number.isFinite(safe.release) ? clamp(safe.release, 0, 3) : DEFAULT_ADSR.release,
   };
 }
 
@@ -158,6 +176,7 @@ function normalizeTrack(track, index) {
     volume: Number.isFinite(safe.volume) ? clamp(safe.volume, 0, 1) : base.volume,
     pan: Number.isFinite(safe.pan) ? clamp(safe.pan, -1, 1) : base.pan,
     octave: Number.isFinite(safe.octave) ? clamp(safe.octave, -3, 3) : base.octave,
+    adsr: normalizeAdsr(safe.adsr),
     mute: Boolean(safe.mute),
     solo: Boolean(safe.solo),
     blocks: normalizeBlocks(safe.blocks, type, getDrumRowsForConsole(consoleName)),
