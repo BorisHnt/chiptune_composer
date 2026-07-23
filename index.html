@@ -132,6 +132,35 @@
       </div>
     </div>
 
+    <div id="chipDrumOverlay" class="overlay chip-drum-overlay hidden">
+      <div class="overlay-panel chip-drum-window">
+        <div class="overlay-header">
+          <div>
+            <div class="chip-drum-window-title">Chip Drum Machine</div>
+            <div id="chipDrumTrackName" class="chip-drum-window-track">Track</div>
+          </div>
+          <div class="overlay-actions">
+            <button id="chipDrumPreviewBtn" class="btn">Preview</button>
+            <button id="chipDrumResetPadBtn" class="btn">Reset Pad</button>
+            <button id="closeChipDrumBtn" class="btn">Close</button>
+          </div>
+        </div>
+        <div class="chip-drum-body">
+          <aside class="chip-drum-pad-column">
+            <div id="chipDrumPadGrid" class="chip-drum-pad-grid"></div>
+          </aside>
+          <section class="chip-drum-editor">
+            <div id="chipDrumPadHeader" class="chip-drum-pad-header"></div>
+            <div id="chipDrumControls" class="chip-drum-controls"></div>
+            <div class="chip-drum-scope">
+              <div class="chip-drum-scope-label">Pad Oscilloscope</div>
+              <canvas id="chipDrumOscilloscopeCanvas" width="720" height="150"></canvas>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
     <div id="editorOverlay" class="overlay hidden">
       <div class="overlay-panel">
         <div class="overlay-header">

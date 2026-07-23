@@ -1,4 +1,9 @@
-import { DEFAULT_DRUM_ROWS, ensureDrumPattern, getDrumRowsForConsole } from "./dataModel.js";
+import {
+  DEFAULT_DRUM_ROWS,
+  ensureDrumPattern,
+  getDrumRowsForConsole,
+  getDrumVoiceLabel,
+} from "./dataModel.js";
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 const SUPPORTS_POINTER = "PointerEvent" in window;
@@ -130,7 +135,7 @@ export class DrumEditor {
       const name = document.createElement("button");
       name.type = "button";
       name.className = "drum-label-name";
-      name.textContent = row.toUpperCase();
+      name.textContent = getDrumVoiceLabel(this.track, row).toUpperCase();
       name.addEventListener("click", () => {
         const level = Number.isFinite(pattern.volumes?.[row]) ? pattern.volumes[row] : 0.9;
         this.onPreview?.(row, level);

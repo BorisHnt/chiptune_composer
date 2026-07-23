@@ -1,3 +1,40 @@
+export const CHIP_DRUM_CONSOLE = "Chip Drum Machine";
+
+export const CHIP_DRUM_ENGINES = [
+  "kick",
+  "snare",
+  "clap",
+  "hat",
+  "openhat",
+  "tom",
+  "fm-tom",
+  "cowbell",
+  "perc",
+  "noise",
+];
+
+export const CHIP_DRUM_WAVEFORMS = ["sine", "triangle", "square", "sawtooth"];
+export const CHIP_DRUM_PARAMETER_KEYS = ["pitch", "sweep", "tone", "decay", "noise", "drive"];
+
+const CHIP_DRUM_PAD_TEMPLATES = [
+  { id: "pad01", name: "Deep Kick", engine: "kick", waveform: "sine", bits: 8, pitch: 0.2, sweep: 0.82, tone: 0.24, decay: 0.72, noise: 0.02, drive: 0.18 },
+  { id: "pad02", name: "Punch Kick", engine: "kick", waveform: "square", bits: 5, pitch: 0.4, sweep: 0.65, tone: 0.52, decay: 0.38, noise: 0.08, drive: 0.38 },
+  { id: "pad03", name: "Click Kick", engine: "kick", waveform: "triangle", bits: 4, pitch: 0.58, sweep: 0.92, tone: 0.76, decay: 0.2, noise: 0.24, drive: 0.3 },
+  { id: "pad04", name: "Noise Snare", engine: "snare", waveform: "triangle", bits: 5, pitch: 0.5, sweep: 0.18, tone: 0.68, decay: 0.35, noise: 0.9, drive: 0.2 },
+  { id: "pad05", name: "Tone Snare", engine: "snare", waveform: "square", bits: 6, pitch: 0.6, sweep: 0.35, tone: 0.44, decay: 0.42, noise: 0.54, drive: 0.28 },
+  { id: "pad06", name: "Arcade Clap", engine: "clap", waveform: "square", bits: 5, pitch: 0.55, sweep: 0.2, tone: 0.62, decay: 0.44, noise: 0.94, drive: 0.16 },
+  { id: "pad07", name: "Closed Hat", engine: "hat", waveform: "square", bits: 4, pitch: 0.78, sweep: 0.08, tone: 0.9, decay: 0.12, noise: 1, drive: 0.12 },
+  { id: "pad08", name: "Open Hat", engine: "openhat", waveform: "square", bits: 5, pitch: 0.74, sweep: 0.08, tone: 0.86, decay: 0.66, noise: 1, drive: 0.1 },
+  { id: "pad09", name: "Low Tom", engine: "tom", waveform: "triangle", bits: 7, pitch: 0.24, sweep: 0.48, tone: 0.38, decay: 0.58, noise: 0.04, drive: 0.16 },
+  { id: "pad10", name: "High Tom", engine: "tom", waveform: "square", bits: 6, pitch: 0.64, sweep: 0.52, tone: 0.56, decay: 0.4, noise: 0.04, drive: 0.2 },
+  { id: "pad11", name: "Rim Chip", engine: "perc", waveform: "square", bits: 3, pitch: 0.72, sweep: 0.18, tone: 0.72, decay: 0.12, noise: 0.08, drive: 0.42 },
+  { id: "pad12", name: "Cowbell", engine: "cowbell", waveform: "square", bits: 5, pitch: 0.62, sweep: 0.12, tone: 0.68, decay: 0.4, noise: 0.02, drive: 0.24 },
+  { id: "pad13", name: "FM Perc", engine: "fm-tom", waveform: "sine", bits: 7, pitch: 0.58, sweep: 0.38, tone: 0.82, decay: 0.32, noise: 0.04, drive: 0.3 },
+  { id: "pad14", name: "Noise Burst", engine: "noise", waveform: "square", bits: 3, pitch: 0.5, sweep: 0.1, tone: 0.42, decay: 0.3, noise: 1, drive: 0.46 },
+  { id: "pad15", name: "Bleep", engine: "perc", waveform: "square", bits: 4, pitch: 0.86, sweep: 0.22, tone: 0.64, decay: 0.24, noise: 0, drive: 0.2 },
+  { id: "pad16", name: "Zap", engine: "perc", waveform: "sawtooth", bits: 5, pitch: 0.76, sweep: 0.95, tone: 0.78, decay: 0.48, noise: 0.12, drive: 0.34 },
+];
+
 export const DRUM_KITS = {
   NES: ["kick", "snare", "hat", "perc"],
   Famicom: ["kick", "snare", "hat", "openhat", "tom"],
@@ -7,6 +44,7 @@ export const DRUM_KITS = {
   Atari: ["kick", "snare", "hat", "noise"],
   C64: ["kick", "snare", "hat", "clap", "tom"],
   Sega: ["kick", "snare", "hat", "fm-tom", "cowbell"],
+  [CHIP_DRUM_CONSOLE]: CHIP_DRUM_PAD_TEMPLATES.map((pad) => pad.id),
 };
 
 export const DEFAULT_DRUM_ROWS = DRUM_KITS.NES;
@@ -20,6 +58,7 @@ export const DRUM_CONSOLE_CHARACTER = {
   Atari: { wave: "square", bits: 3, pitch: 0.14, tone: 0.18, decay: 0.55, noise: 0.1, drive: 0.25 },
   C64: { wave: "sawtooth", bits: 4, pitch: -0.02, tone: 0.06, decay: 1.05, noise: 0.03, drive: 0.18 },
   Sega: { wave: "sine", bits: 7, pitch: 0.1, tone: 0.12, decay: 0.9, noise: -0.04, drive: 0.2 },
+  [CHIP_DRUM_CONSOLE]: { wave: "square", bits: 8, pitch: 0, tone: 0, decay: 1, noise: 0, drive: 0 },
 };
 
 const DRUM_VOICE_PRESETS = {
@@ -127,6 +166,7 @@ export function createTrack(index, options = {}) {
     octave: 0,
     adsr: { ...DEFAULT_ADSR },
     drumVoices: {},
+    chipDrumPads: null,
     mute: false,
     solo: false,
     blocks: [],
@@ -191,6 +231,29 @@ function normalizeDrumVoices(drumVoices) {
   return normalized;
 }
 
+function normalizeChipDrumPads(chipDrumPads) {
+  if (!Array.isArray(chipDrumPads)) return null;
+  const byId = new Map(chipDrumPads.map((pad) => [pad?.id, pad]));
+
+  return CHIP_DRUM_PAD_TEMPLATES.map((template) => {
+    const safe = isObject(byId.get(template.id)) ? byId.get(template.id) : {};
+    const normalized = {
+      ...template,
+      name:
+        typeof safe.name === "string" && safe.name.trim()
+          ? safe.name.trim().slice(0, 24)
+          : template.name,
+      engine: CHIP_DRUM_ENGINES.includes(safe.engine) ? safe.engine : template.engine,
+      waveform: CHIP_DRUM_WAVEFORMS.includes(safe.waveform) ? safe.waveform : template.waveform,
+      bits: Number.isFinite(safe.bits) ? Math.round(clamp(safe.bits, 2, 12)) : template.bits,
+    };
+    CHIP_DRUM_PARAMETER_KEYS.forEach((key) => {
+      normalized[key] = Number.isFinite(safe[key]) ? clamp(safe[key], 0, 1) : template[key];
+    });
+    return normalized;
+  });
+}
+
 function normalizeBlocks(blocks, type, drumRows) {
   if (!Array.isArray(blocks)) return [];
   return blocks.map((block) => {
@@ -234,6 +297,7 @@ function normalizeTrack(track, index) {
     octave: Number.isFinite(safe.octave) ? clamp(safe.octave, -3, 3) : base.octave,
     adsr: normalizeAdsr(safe.adsr),
     drumVoices: normalizeDrumVoices(safe.drumVoices),
+    chipDrumPads: normalizeChipDrumPads(safe.chipDrumPads),
     mute: Boolean(safe.mute),
     solo: Boolean(safe.solo),
     blocks: normalizeBlocks(safe.blocks, type, getDrumRowsForConsole(consoleName)),
@@ -313,6 +377,39 @@ export function getDrumRowsForConsole(consoleName) {
   return DRUM_KITS[consoleName] ? [...DRUM_KITS[consoleName]] : [...DEFAULT_DRUM_ROWS];
 }
 
+export function createChipDrumPads() {
+  return CHIP_DRUM_PAD_TEMPLATES.map((pad) => ({ ...pad }));
+}
+
+export function ensureChipDrumPads(track) {
+  const pads = track?.chipDrumPads;
+  const isComplete =
+    Array.isArray(pads) &&
+    pads.length === CHIP_DRUM_PAD_TEMPLATES.length &&
+    CHIP_DRUM_PAD_TEMPLATES.every((template) =>
+      pads.some((pad) => pad?.id === template.id),
+    );
+  if (isComplete) return pads;
+
+  const normalized = normalizeChipDrumPads(pads);
+  track.chipDrumPads = normalized || createChipDrumPads();
+  return track.chipDrumPads;
+}
+
+export function resetChipDrumPad(track, padId) {
+  const pads = ensureChipDrumPads(track);
+  const index = CHIP_DRUM_PAD_TEMPLATES.findIndex((pad) => pad.id === padId);
+  if (index === -1) return null;
+  pads[index] = { ...CHIP_DRUM_PAD_TEMPLATES[index] };
+  return pads[index];
+}
+
+export function getDrumVoiceLabel(track, drum) {
+  if (track?.console !== CHIP_DRUM_CONSOLE) return drum;
+  const pad = track?.chipDrumPads?.find((item) => item.id === drum);
+  return pad?.name || CHIP_DRUM_PAD_TEMPLATES.find((item) => item.id === drum)?.name || drum;
+}
+
 export function getDrumVoicePreset(consoleName, drum) {
   const base = DRUM_VOICE_PRESETS[drum] || DRUM_VOICE_PRESETS.perc;
   const character = DRUM_CONSOLE_CHARACTER[consoleName] || DRUM_CONSOLE_CHARACTER.NES;
@@ -326,6 +423,14 @@ export function getDrumVoicePreset(consoleName, drum) {
 }
 
 export function getDrumVoiceSettings(track, drum) {
+  if (track?.console === CHIP_DRUM_CONSOLE) {
+    const pad =
+      track?.chipDrumPads?.find((item) => item.id === drum) ||
+      CHIP_DRUM_PAD_TEMPLATES.find((item) => item.id === drum);
+    if (pad) {
+      return Object.fromEntries(CHIP_DRUM_PARAMETER_KEYS.map((key) => [key, pad[key]]));
+    }
+  }
   const preset = getDrumVoicePreset(track?.console, drum);
   const custom = track?.drumVoices?.[track.console]?.[drum];
   if (!isObject(custom)) return preset;
@@ -336,6 +441,29 @@ export function getDrumVoiceSettings(track, drum) {
     }
   });
   return settings;
+}
+
+export function getDrumVoiceDefinition(track, drum) {
+  if (track?.console === CHIP_DRUM_CONSOLE) {
+    const pad =
+      track?.chipDrumPads?.find((item) => item.id === drum) ||
+      CHIP_DRUM_PAD_TEMPLATES.find((item) => item.id === drum) ||
+      CHIP_DRUM_PAD_TEMPLATES[0];
+    return {
+      engine: pad.engine,
+      waveform: pad.waveform,
+      bits: pad.bits,
+      settings: Object.fromEntries(CHIP_DRUM_PARAMETER_KEYS.map((key) => [key, pad[key]])),
+    };
+  }
+
+  const character = DRUM_CONSOLE_CHARACTER[track?.console] || DRUM_CONSOLE_CHARACTER.NES;
+  return {
+    engine: drum,
+    waveform: character.wave,
+    bits: character.bits,
+    settings: getDrumVoiceSettings(track, drum),
+  };
 }
 
 export function getProjectEndBeat(project) {

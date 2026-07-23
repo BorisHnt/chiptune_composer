@@ -15,6 +15,13 @@ import {
   CONSOLE_WAVES,
   getDrumVoicePreset,
   getDrumVoiceSettings,
+  getDrumVoiceLabel,
+  CHIP_DRUM_CONSOLE,
+  CHIP_DRUM_ENGINES,
+  CHIP_DRUM_WAVEFORMS,
+  CHIP_DRUM_PARAMETER_KEYS,
+  ensureChipDrumPads,
+  resetChipDrumPad,
 } from "./modules/dataModel.js";
 import { AudioEngine } from "./modules/audioEngine.js";
 import { Timeline } from "./modules/timeline.js";
@@ -67,6 +74,15 @@ const ui = {
   consolePickerTitle: document.getElementById("consolePickerTitle"),
   closeConsolePickerBtn: document.getElementById("closeConsolePickerBtn"),
   consolePickerList: document.getElementById("consolePickerList"),
+  chipDrumOverlay: document.getElementById("chipDrumOverlay"),
+  chipDrumTrackName: document.getElementById("chipDrumTrackName"),
+  chipDrumPadGrid: document.getElementById("chipDrumPadGrid"),
+  chipDrumPadHeader: document.getElementById("chipDrumPadHeader"),
+  chipDrumControls: document.getElementById("chipDrumControls"),
+  chipDrumPreviewBtn: document.getElementById("chipDrumPreviewBtn"),
+  chipDrumResetPadBtn: document.getElementById("chipDrumResetPadBtn"),
+  closeChipDrumBtn: document.getElementById("closeChipDrumBtn"),
+  chipDrumOscilloscopeCanvas: document.getElementById("chipDrumOscilloscopeCanvas"),
 };
 
 const STORAGE_KEY = "chiptune_composer_autosave_v1";
@@ -114,6 +130,9 @@ let activeTrackId = null;
 let activeBlockId = null;
 let selectedTrackId = project.tracks[0]?.id || null;
 const selectedDrumVoiceByTrack = new Map();
+let activeChipDrumTrackId = null;
+let activeChipDrumPadId = null;
+let chipDrumOscilloscopeFrame = null;
 let previewEnabled = false;
 let animationFrame = null;
 let playbackStopTimer = null;
@@ -370,6 +389,9 @@ function setTrackConsole(track, consoleName) {
   if (track.type === "drums") {
     if (!DRUM_KITS[consoleName]) return;
     track.console = consoleName;
+    if (consoleName === CHIP_DRUM_CONSOLE) {
+      ensureChipDrumPads(track);
+    }
     const rows = getDrumRowsForConsole(consoleName);
     track.blocks.forEach((block) => {
       ensureDrumPattern(block, rows);
@@ -441,7 +463,81 @@ function createDrumParameterControl(track, drum, key, labelText) {
   return wrap;
 }
 
+function renderChipDrumDevice(track) {
+  const pads = ensureChipDrumPads(track);
+  let selectedPadId = selectedDrumVoiceByTrack.get(track.id);
+  if (!pads.some((pad) => pad.id === selectedPadId)) {
+    selectedPadId = pads[0].id;
+    selectedDrumVoiceByTrack.set(track.id, selectedPadId);
+  }
+  const selectedPad = pads.find((pad) => pad.id === selectedPadId);
+
+  const device = document.createElement("div");
+  device.className = "synth-device chip-drum-device-compact";
+
+  const deviceHead = document.createElement("div");
+  deviceHead.className = "synth-device-head";
+
+  const title = document.createElement("div");
+  title.className = "synth-device-title";
+  title.textContent = "Chip Drum";
+
+  const type = document.createElement("div");
+  type.className = "synth-device-type";
+  type.textContent = "16-voice Drum Machine";
+
+  deviceHead.appendChild(title);
+  deviceHead.appendChild(type);
+
+  const padGrid = document.createElement("div");
+  padGrid.className = "chip-device-pad-grid";
+  pads.forEach((pad, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chip-device-pad";
+    button.classList.toggle("is-selected", pad.id === selectedPadId);
+    button.textContent = String(index + 1).padStart(2, "0");
+    button.title = pad.name;
+    button.setAttribute("aria-label", `Preview ${pad.name}`);
+    button.addEventListener("click", (event) => {
+      selectedDrumVoiceByTrack.set(track.id, pad.id);
+      previewChipDrumPad(track, pad.id, event);
+      renderDevicePanel();
+    });
+    padGrid.appendChild(button);
+  });
+
+  const actions = document.createElement("div");
+  actions.className = "chip-device-actions";
+
+  const selectedName = document.createElement("div");
+  selectedName.className = "chip-device-selected";
+  selectedName.textContent = selectedPad?.name || "Pad";
+
+  const consoleButton = createConsoleButton();
+
+  const editButton = document.createElement("button");
+  editButton.type = "button";
+  editButton.className = "btn";
+  editButton.textContent = "Edit Machine";
+  editButton.addEventListener("click", () => openChipDrumEditor(track));
+
+  actions.appendChild(selectedName);
+  actions.appendChild(consoleButton);
+  actions.appendChild(editButton);
+
+  device.appendChild(deviceHead);
+  device.appendChild(padGrid);
+  device.appendChild(actions);
+  ui.deviceContent.appendChild(device);
+}
+
 function renderDrumDevice(track) {
+  if (track.console === CHIP_DRUM_CONSOLE) {
+    renderChipDrumDevice(track);
+    return;
+  }
+
   const rows = getDrumRowsForConsole(track.console);
   let selectedDrum = selectedDrumVoiceByTrack.get(track.id);
   if (!rows.includes(selectedDrum)) {
@@ -651,7 +747,10 @@ function openConsolePicker() {
 
     const detail = document.createElement("span");
     detail.className = "console-option-detail";
-    detail.textContent = sounds.join(", ");
+    detail.textContent =
+      consoleName === CHIP_DRUM_CONSOLE
+        ? "16 editable pads · kick, snare, clap, hats, FM and chip percussion"
+        : sounds.join(", ");
 
     option.appendChild(title);
     option.appendChild(detail);
@@ -669,6 +768,284 @@ function openConsolePicker() {
 
 function closeConsolePicker() {
   ui.consolePickerOverlay.classList.add("hidden");
+}
+
+function getActiveChipDrumTrack() {
+  return project.tracks.find(
+    (track) =>
+      track.id === activeChipDrumTrackId &&
+      track.type === "drums" &&
+      track.console === CHIP_DRUM_CONSOLE,
+  );
+}
+
+function getActiveChipDrumPad() {
+  const track = getActiveChipDrumTrack();
+  if (!track) return null;
+  return ensureChipDrumPads(track).find((pad) => pad.id === activeChipDrumPadId) || null;
+}
+
+function previewChipDrumPad(track, padId, event = null) {
+  let level = 0.9;
+  if (event?.currentTarget && Number.isFinite(event.clientY)) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1);
+    level = 1 - position * 0.6;
+  }
+  audioEngine.previewDrum(track, padId, level);
+}
+
+function createChipEditorField(labelText, control) {
+  const label = document.createElement("label");
+  label.className = "chip-editor-field";
+  const text = document.createElement("span");
+  text.textContent = labelText;
+  label.appendChild(text);
+  label.appendChild(control);
+  return label;
+}
+
+function commitChipDrumPadChange(track, padId, { refreshEditor = false } = {}) {
+  commitChange({
+    reRenderTimeline: false,
+    reRenderEditors: refreshEditor,
+    reRenderDevice: true,
+  });
+  audioEngine.previewDrum(track, padId, 0.9);
+}
+
+function createChipDrumControl(track, pad, key, labelText) {
+  const control = document.createElement("label");
+  control.className = "chip-drum-control";
+
+  const label = document.createElement("span");
+  label.textContent = labelText;
+
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = 0;
+  slider.max = 1;
+  slider.step = 0.01;
+  slider.value = pad[key];
+
+  const value = document.createElement("span");
+  value.className = "chip-drum-control-value";
+  value.textContent = Math.round(pad[key] * 100);
+
+  slider.addEventListener("input", () => {
+    pad[key] = parseFloat(slider.value);
+    value.textContent = Math.round(pad[key] * 100);
+  });
+  slider.addEventListener("change", () => {
+    commitChipDrumPadChange(track, pad.id);
+  });
+
+  control.appendChild(label);
+  control.appendChild(slider);
+  control.appendChild(value);
+  return control;
+}
+
+function renderChipDrumEditor() {
+  const track = getActiveChipDrumTrack();
+  if (!track) {
+    closeChipDrumEditor();
+    return;
+  }
+
+  const pads = ensureChipDrumPads(track);
+  if (!pads.some((pad) => pad.id === activeChipDrumPadId)) {
+    activeChipDrumPadId = pads[0].id;
+  }
+  selectedDrumVoiceByTrack.set(track.id, activeChipDrumPadId);
+  const pad = pads.find((item) => item.id === activeChipDrumPadId);
+  const trackIndex = project.tracks.findIndex((item) => item.id === track.id);
+
+  ui.chipDrumTrackName.textContent = `Track ${trackIndex + 1} · ${pad.name}`;
+  ui.chipDrumPadGrid.innerHTML = "";
+  ui.chipDrumPadHeader.innerHTML = "";
+  ui.chipDrumControls.innerHTML = "";
+
+  pads.forEach((item, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chip-machine-pad";
+    button.classList.toggle("is-selected", item.id === pad.id);
+    button.setAttribute("aria-pressed", item.id === pad.id ? "true" : "false");
+
+    const number = document.createElement("span");
+    number.className = "chip-machine-pad-number";
+    number.textContent = String(index + 1).padStart(2, "0");
+
+    const name = document.createElement("span");
+    name.className = "chip-machine-pad-name";
+    name.textContent = item.name;
+
+    button.appendChild(number);
+    button.appendChild(name);
+    button.addEventListener("click", (event) => {
+      activeChipDrumPadId = item.id;
+      selectedDrumVoiceByTrack.set(track.id, item.id);
+      previewChipDrumPad(track, item.id, event);
+      renderChipDrumEditor();
+      renderDevicePanel();
+    });
+    ui.chipDrumPadGrid.appendChild(button);
+  });
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.maxLength = 24;
+  nameInput.value = pad.name;
+  nameInput.addEventListener("change", () => {
+    const nextName = nameInput.value.trim();
+    if (nextName) {
+      pad.name = nextName.slice(0, 24);
+    } else {
+      nameInput.value = pad.name;
+    }
+    commitChipDrumPadChange(track, pad.id, { refreshEditor: true });
+    renderChipDrumEditor();
+  });
+
+  const engineSelect = document.createElement("select");
+  CHIP_DRUM_ENGINES.forEach((engine) => {
+    const option = document.createElement("option");
+    option.value = engine;
+    option.textContent = engine;
+    option.selected = engine === pad.engine;
+    engineSelect.appendChild(option);
+  });
+  engineSelect.addEventListener("change", () => {
+    pad.engine = engineSelect.value;
+    commitChipDrumPadChange(track, pad.id);
+  });
+
+  const waveformSelect = document.createElement("select");
+  CHIP_DRUM_WAVEFORMS.forEach((waveform) => {
+    const option = document.createElement("option");
+    option.value = waveform;
+    option.textContent = waveform;
+    option.selected = waveform === pad.waveform;
+    waveformSelect.appendChild(option);
+  });
+  waveformSelect.addEventListener("change", () => {
+    pad.waveform = waveformSelect.value;
+    commitChipDrumPadChange(track, pad.id);
+  });
+
+  const bitsSelect = document.createElement("select");
+  for (let bits = 2; bits <= 12; bits += 1) {
+    const option = document.createElement("option");
+    option.value = bits;
+    option.textContent = `${bits} bit`;
+    option.selected = bits === pad.bits;
+    bitsSelect.appendChild(option);
+  }
+  bitsSelect.addEventListener("change", () => {
+    pad.bits = parseInt(bitsSelect.value, 10);
+    commitChipDrumPadChange(track, pad.id);
+  });
+
+  ui.chipDrumPadHeader.appendChild(createChipEditorField("Pad name", nameInput));
+  ui.chipDrumPadHeader.appendChild(createChipEditorField("Engine", engineSelect));
+  ui.chipDrumPadHeader.appendChild(createChipEditorField("Wave", waveformSelect));
+  ui.chipDrumPadHeader.appendChild(createChipEditorField("Resolution", bitsSelect));
+
+  const labels = {
+    pitch: "Pitch",
+    sweep: "Pitch Sweep",
+    tone: "Tone / Filter",
+    decay: "Decay",
+    noise: "Noise Mix",
+    drive: "Drive",
+  };
+  CHIP_DRUM_PARAMETER_KEYS.forEach((key) => {
+    ui.chipDrumControls.appendChild(createChipDrumControl(track, pad, key, labels[key]));
+  });
+}
+
+function startChipDrumOscilloscope() {
+  const canvas = ui.chipDrumOscilloscopeCanvas;
+  if (!canvas || chipDrumOscilloscopeFrame) return;
+  const ctx = canvas.getContext("2d");
+  const buffer = new Uint8Array(512);
+
+  const render = () => {
+    chipDrumOscilloscopeFrame = window.requestAnimationFrame(render);
+    const analyser = audioEngine.getDrumPreviewAnalyser();
+    if (analyser) {
+      analyser.getByteTimeDomainData(buffer);
+    } else {
+      buffer.fill(128);
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "rgba(238, 242, 244, 0.12)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= canvas.width; x += canvas.width / 8) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= canvas.height; y += canvas.height / 4) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "#37d9d3";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const slice = canvas.width / buffer.length;
+    for (let index = 0; index < buffer.length; index += 1) {
+      const normalized = buffer[index] / 128 - 1;
+      const x = index * slice;
+      const y = (canvas.height / 2) * (1 - normalized);
+      if (index === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.stroke();
+  };
+
+  render();
+}
+
+function stopChipDrumOscilloscope() {
+  if (!chipDrumOscilloscopeFrame) return;
+  window.cancelAnimationFrame(chipDrumOscilloscopeFrame);
+  chipDrumOscilloscopeFrame = null;
+}
+
+function openChipDrumEditor(track = getSelectedTrack()) {
+  if (!track || track.type !== "drums" || track.console !== CHIP_DRUM_CONSOLE) return;
+  const pads = ensureChipDrumPads(track);
+  activeChipDrumTrackId = track.id;
+  activeChipDrumPadId = selectedDrumVoiceByTrack.get(track.id) || pads[0].id;
+  ui.chipDrumOverlay.classList.remove("hidden");
+  renderChipDrumEditor();
+  startChipDrumOscilloscope();
+}
+
+function closeChipDrumEditor() {
+  ui.chipDrumOverlay.classList.add("hidden");
+  stopChipDrumOscilloscope();
+  activeChipDrumTrackId = null;
+  activeChipDrumPadId = null;
+}
+
+function resetActiveChipDrumPad() {
+  const track = getActiveChipDrumTrack();
+  const pad = getActiveChipDrumPad();
+  if (!track || !pad) return;
+  const resetPad = resetChipDrumPad(track, pad.id);
+  commitChipDrumPadChange(track, resetPad.id, { refreshEditor: true });
+  renderChipDrumEditor();
 }
 
 function commitChange(options = {}) {
@@ -720,6 +1097,13 @@ function applyState(nextState) {
       refreshEditor();
     } else {
       closeEditor();
+    }
+  }
+  if (activeChipDrumTrackId) {
+    if (getActiveChipDrumTrack()) {
+      renderChipDrumEditor();
+    } else {
+      closeChipDrumEditor();
     }
   }
   if (isPlaying) {
@@ -1127,6 +1511,15 @@ ui.previewBtn.addEventListener("click", () => {
 });
 
 ui.closeEditorBtn.addEventListener("click", closeEditor);
+ui.closeChipDrumBtn.addEventListener("click", closeChipDrumEditor);
+ui.chipDrumPreviewBtn.addEventListener("click", () => {
+  const track = getActiveChipDrumTrack();
+  const pad = getActiveChipDrumPad();
+  if (track && pad) {
+    audioEngine.previewDrum(track, pad.id, 0.9);
+  }
+});
+ui.chipDrumResetPadBtn.addEventListener("click", resetActiveChipDrumPad);
 ui.confirmCancelBtn.addEventListener("click", closeConfirm);
 ui.confirmOkBtn.addEventListener("click", () => {
   if (pendingConfirm) {
@@ -1144,6 +1537,13 @@ ui.consolePickerOverlay.addEventListener("pointerdown", (event) => {
   }
 });
 
+ui.chipDrumOverlay.addEventListener("pointerdown", (event) => {
+  audioEngine.unlock();
+  if (event.target === ui.chipDrumOverlay) {
+    closeChipDrumEditor();
+  }
+});
+
 ui.confirmOverlay.addEventListener("pointerdown", (event) => {
   if (event.target === ui.confirmOverlay) {
     closeConfirm();
@@ -1156,6 +1556,10 @@ ui.editorOverlay.addEventListener("pointerdown", () => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !ui.chipDrumOverlay.classList.contains("hidden")) {
+    closeChipDrumEditor();
+    return;
+  }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
     if (event.shiftKey) {
@@ -1170,6 +1574,7 @@ window.addEventListener("keydown", (event) => {
 
 window.addEventListener("beforeunload", () => {
   saveProjectToCache();
+  stopChipDrumOscilloscope();
   audioEngine.stop();
 });
 

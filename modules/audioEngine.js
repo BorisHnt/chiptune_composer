@@ -1,9 +1,8 @@
 import {
   DEFAULT_ADSR,
   DEFAULT_DRUM_ROWS,
-  DRUM_CONSOLE_CHARACTER,
   ensureDrumPattern,
-  getDrumVoiceSettings,
+  getDrumVoiceDefinition,
   getProjectEndBeat,
 } from "./dataModel.js";
 
@@ -580,13 +579,12 @@ function scheduleSynthNote(context, track, trackChain, note, startTime, duration
   voice.stop(startTime + duration + (adsr.release ?? DEFAULT_ADSR.release) + 0.1);
 }
 
-function createDrumDestination(context, trackChain, consoleName, settings) {
+function createDrumDestination(context, trackChain, bits, settings) {
   const input = context.createGain();
-  const character = DRUM_CONSOLE_CHARACTER[consoleName] || DRUM_CONSOLE_CHARACTER.NES;
   let output = input;
 
-  if (character.bits < 12) {
-    const crusher = createBitcrushNode(context, character.bits);
+  if (bits < 12) {
+    const crusher = createBitcrushNode(context, bits);
     output.connect(crusher);
     output = crusher;
   }
@@ -652,17 +650,19 @@ function scheduleTonalDrum(
 }
 
 function scheduleDrumHit(context, track, trackChain, drum, startTime, level = 0.9, duration = 0.2) {
-  const settings = getDrumVoiceSettings(track, drum);
-  const character = DRUM_CONSOLE_CHARACTER[track?.console] || DRUM_CONSOLE_CHARACTER.NES;
-  const destination = createDrumDestination(context, trackChain, track?.console, settings);
+  const voice = getDrumVoiceDefinition(track, drum);
+  const settings = voice.settings;
+  const engine = voice.engine;
+  const destination = createDrumDestination(context, trackChain, voice.bits, settings);
   const durationScale = clamp(duration / 0.2, 0.55, 1.5);
   const tail = lerp(0.045, 0.85, settings.decay) * durationScale;
 
-  if (drum === "kick") {
+  if (engine === "kick") {
+    const endFrequency = lerp(28, 92, settings.pitch);
     scheduleTonalDrum(context, destination, {
-      wave: character.wave,
-      startFrequency: lerp(80, 340, settings.pitch),
-      endFrequency: lerp(28, 92, settings.pitch),
+      wave: voice.waveform,
+      startFrequency: endFrequency + lerp(35, 430, settings.sweep ?? 0.55),
+      endFrequency,
       startTime,
       duration: tail,
       level,
@@ -681,7 +681,7 @@ function scheduleDrumHit(context, track, trackChain, drum, startTime, level = 0.
     return;
   }
 
-  if (drum === "snare") {
+  if (engine === "snare") {
     scheduleNoiseBurst(
       context,
       destination,
@@ -693,8 +693,9 @@ function scheduleDrumHit(context, track, trackChain, drum, startTime, level = 0.
     );
     if (settings.noise < 0.98) {
       scheduleTonalDrum(context, destination, {
-        wave: character.wave,
-        startFrequency: lerp(110, 420, settings.pitch),
+        wave: voice.waveform,
+        startFrequency:
+          lerp(110, 420, settings.pitch) + lerp(0, 180, settings.sweep ?? 0.2),
         endFrequency: lerp(75, 220, settings.pitch),
         startTime,
         duration: tail * 0.55,
@@ -704,17 +705,17 @@ function scheduleDrumHit(context, track, trackChain, drum, startTime, level = 0.
     return;
   }
 
-  if (drum === "hat") {
+  if (engine === "hat") {
     scheduleNoiseBurst(context, destination, startTime, tail * 0.55, settings.tone, level * 0.8, "highpass");
     return;
   }
 
-  if (drum === "openhat") {
+  if (engine === "openhat") {
     scheduleNoiseBurst(context, destination, startTime, tail, settings.tone, level * 0.75, "highpass");
     return;
   }
 
-  if (drum === "clap") {
+  if (engine === "clap") {
     const burst = Math.max(0.025, tail * 0.45);
     scheduleNoiseBurst(context, destination, startTime, burst, settings.tone, level * 0.62, "bandpass");
     scheduleNoiseBurst(context, destination, startTime + 0.025, burst, settings.tone, level * 0.5, "bandpass");
@@ -722,11 +723,12 @@ function scheduleDrumHit(context, track, trackChain, drum, startTime, level = 0.
     return;
   }
 
-  if (drum === "tom") {
+  if (engine === "tom") {
+    const endFrequency = lerp(55, 190, settings.pitch);
     scheduleTonalDrum(context, destination, {
-      wave: character.wave,
-      startFrequency: lerp(110, 360, settings.pitch),
-      endFrequency: lerp(55, 190, settings.pitch),
+      wave: voice.waveform,
+      startFrequency: endFrequency + lerp(20, 280, settings.sweep ?? 0.45),
+      endFrequency,
       startTime,
       duration: tail,
       level: level * 0.78,
@@ -734,12 +736,12 @@ function scheduleDrumHit(context, track, trackChain, drum, startTime, level = 0.
     return;
   }
 
-  if (drum === "noise") {
+  if (engine === "noise") {
     scheduleNoiseBurst(context, destination, startTime, tail, settings.tone, level * 0.75, "highpass");
     return;
   }
 
-  if (drum === "fm-tom") {
+  if (engine === "fm-tom") {
     const carrier = context.createOscillator();
     const modulator = context.createOscillator();
     const modGain = context.createGain();
@@ -747,7 +749,14 @@ function scheduleDrumHit(context, track, trackChain, drum, startTime, level = 0.
     carrier.type = "sine";
     modulator.type = "sine";
     const frequency = lerp(90, 320, settings.pitch);
-    carrier.frequency.setValueAtTime(frequency, startTime);
+    carrier.frequency.setValueAtTime(
+      frequency + lerp(0, 260, settings.sweep ?? 0.35),
+      startTime,
+    );
+    carrier.frequency.exponentialRampToValueAtTime(
+      frequency,
+      startTime + Math.min(tail * 0.55, 0.18),
+    );
     modulator.frequency.setValueAtTime(frequency * lerp(1.5, 5, settings.tone), startTime);
     modGain.gain.setValueAtTime(lerp(25, 240, settings.tone), startTime);
     modulator.connect(modGain);
@@ -763,7 +772,7 @@ function scheduleDrumHit(context, track, trackChain, drum, startTime, level = 0.
     return;
   }
 
-  if (drum === "cowbell") {
+  if (engine === "cowbell") {
     const osc1 = context.createOscillator();
     const osc2 = context.createOscillator();
     const gain = context.createGain();
@@ -785,8 +794,9 @@ function scheduleDrumHit(context, track, trackChain, drum, startTime, level = 0.
   }
 
   scheduleTonalDrum(context, destination, {
-    wave: character.wave,
-    startFrequency: lerp(170, 760, settings.pitch),
+    wave: voice.waveform,
+    startFrequency:
+      lerp(170, 760, settings.pitch) + lerp(0, 520, settings.sweep ?? 0.25),
     endFrequency: lerp(120, 440, settings.pitch),
     startTime,
     duration: tail,
@@ -886,6 +896,7 @@ export class AudioEngine {
     this.masterGain = null;
     this.masterLimiter = null;
     this.analyser = null;
+    this.drumPreviewAnalyser = null;
     this.masterVolumeValue = 0.9;
     this.isPlaying = false;
     this.loop = false;
@@ -918,9 +929,13 @@ export class AudioEngine {
       this.masterLimiter.release.value = 0.12;
       this.analyser = this.context.createAnalyser();
       this.analyser.fftSize = 2048;
+      this.drumPreviewAnalyser = this.context.createAnalyser();
+      this.drumPreviewAnalyser.fftSize = 512;
+      this.drumPreviewAnalyser.smoothingTimeConstant = 0.35;
       this.masterGain.connect(this.masterLimiter);
       this.masterLimiter.connect(this.analyser);
       this.analyser.connect(this.context.destination);
+      this.drumPreviewAnalyser.connect(this.masterGain);
     }
     return true;
   }
@@ -952,6 +967,10 @@ export class AudioEngine {
 
   getAnalyser() {
     return this.analyser;
+  }
+
+  getDrumPreviewAnalyser() {
+    return this.drumPreviewAnalyser;
   }
 
   playProject(project, { loop = false } = {}) {
@@ -1060,8 +1079,11 @@ export class AudioEngine {
   previewDrum(track, drum, level = 0.9) {
     this.runWithContext(() => {
       const now = this.context.currentTime + 0.01;
-      const master = this.previewBus || this.masterGain;
-      const trackOutput = createTrackOutput(this.context, master, track.volume ?? 0.8);
+      const trackOutput = createTrackOutput(
+        this.context,
+        this.drumPreviewAnalyser,
+        track.volume ?? 0.8,
+      );
       scheduleDrumHit(this.context, track, trackOutput.input, drum, now, level);
     });
   }
