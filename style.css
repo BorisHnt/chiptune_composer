@@ -765,16 +765,17 @@ main {
 }
 
 .chip-drum-pad-grid {
-  height: 100%;
+  height: auto;
   display: grid;
   grid-template-columns: repeat(4, minmax(44px, 1fr));
-  grid-template-rows: repeat(4, minmax(72px, 1fr));
   gap: var(--space-sm);
+  align-content: start;
 }
 
 .chip-machine-pad {
   min-width: 0;
   min-height: 0;
+  aspect-ratio: 1;
   border: var(--border-thin);
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.82);
@@ -953,6 +954,11 @@ main {
     height: 380px;
     border-right: 0;
     border-bottom: var(--border-thin);
+  }
+
+  .chip-drum-pad-grid {
+    max-width: 320px;
+    margin: 0 auto;
   }
 
   .chip-drum-pad-header,
