@@ -1243,14 +1243,13 @@ function addWarpMarkerAtBeat(beat) {
     context.warp,
     context.duration,
   );
-  const snapStep = parseFloat(ui.sampleMarkerSnapSelect.value) || 0.25;
-  const snappedBeat = clampValue(Math.round(beat / snapStep) * snapStep, snapStep, totalBeats - snapStep);
-  const sourceTime = sourceTimeAtWarpBeat(anchors, snappedBeat);
+  const freeBeat = clampValue(beat, 0.001, totalBeats - 0.001);
+  const sourceTime = sourceTimeAtWarpBeat(anchors, freeBeat);
   const duplicate = context.warp.markers.some(
     (marker) => Math.abs(marker.sourceTime - sourceTime) < 0.002,
   );
-  if (duplicate || totalBeats <= snapStep) return;
-  const marker = { id: createRuntimeId(), sourceTime, beat: snappedBeat };
+  if (duplicate || totalBeats <= 0.002) return;
+  const marker = { id: createRuntimeId(), sourceTime, beat: freeBeat };
   context.warp.markers.push(marker);
   context.warp.markers.sort((a, b) => a.sourceTime - b.sourceTime);
   context.warp.enabled = true;
