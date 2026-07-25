@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sample Editor · Chiptune Composer</title>
+    <link rel="stylesheet" href="./editor.css" />
+  </head>
+  <body>
+    <div id="sampleEditorApp">
+      <header class="editor-topbar">
+        <div class="editor-brand">
+          <strong>Sample Editor</strong>
+          <span>Chiptune Composer</span>
+        </div>
+
+        <div class="transport-tools" role="toolbar" aria-label="Transport">
+          <button id="playBtn" class="tool-button primary" type="button" disabled title="Play selection">
+            <span aria-hidden="true">▶</span><span>Play</span>
+          </button>
+          <button id="playAllBtn" class="tool-button" type="button" disabled title="Play all">
+            <span aria-hidden="true">▷</span><span>All</span>
+          </button>
+          <button id="stopBtn" class="icon-button" type="button" disabled title="Stop" aria-label="Stop">
+            <span aria-hidden="true">■</span>
+          </button>
+          <button id="loopBtn" class="tool-button toggle" type="button" disabled aria-pressed="false">
+            Loop
+          </button>
+        </div>
+
+        <div class="history-tools" role="toolbar" aria-label="History and zoom">
+          <button id="undoBtn" class="icon-button" type="button" disabled title="Undo" aria-label="Undo">
+            <span aria-hidden="true">↶</span>
+          </button>
+          <button id="redoBtn" class="icon-button" type="button" disabled title="Redo" aria-label="Redo">
+            <span aria-hidden="true">↷</span>
+          </button>
+          <button id="zoomOutBtn" class="icon-button" type="button" disabled title="Zoom out" aria-label="Zoom out">
+            <span aria-hidden="true">−</span>
+          </button>
+          <input
+            id="zoomSlider"
+            class="zoom-slider"
+            type="range"
+            min="0.25"
+            max="8"
+            step="0.25"
+            value="1"
+            disabled
+            aria-label="Horizontal zoom"
+          />
+          <button id="zoomInBtn" class="icon-button" type="button" disabled title="Zoom in" aria-label="Zoom in">
+            <span aria-hidden="true">+</span>
+          </button>
+          <button id="fitBtn" class="tool-button" type="button" disabled>Fit</button>
+        </div>
+
+        <div class="file-tools">
+          <a class="tool-button quiet" href="../">DAW</a>
+          <button id="importBtn" class="tool-button primary" type="button">Import Audio</button>
+          <input id="audioInput" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a" hidden />
+        </div>
+      </header>
+
+      <main class="editor-main">
+        <section class="wave-section" aria-label="Waveform editor">
+          <div class="wave-header">
+            <div class="file-identity">
+              <strong id="fileName">No audio loaded</strong>
+              <span id="fileMeta">—</span>
+            </div>
+            <div class="time-readout">
+              <span>Cursor</span>
+              <output id="cursorTime">00:00.000</output>
+              <span>Selection</span>
+              <output id="selectionDuration">00:00.000</output>
+            </div>
+          </div>
+
+          <div id="overviewWrap" class="overview-wrap">
+            <canvas id="overviewCanvas" height="72" aria-label="Audio overview"></canvas>
+          </div>
+
+          <div id="waveViewport" class="wave-viewport">
+            <div id="waveStage" class="wave-stage">
+              <canvas id="waveCanvas" height="360" aria-label="Editable audio waveform"></canvas>
+              <div id="wavePlayhead" class="wave-playhead" aria-hidden="true"></div>
+              <div id="emptyState" class="empty-state">
+                <button id="emptyImportBtn" type="button">Drop or import audio</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="selection-strip">
+            <label>
+              <span>Start</span>
+              <input id="selectionStartInput" type="number" min="0" step="0.001" value="0" disabled />
+            </label>
+            <label>
+              <span>End</span>
+              <input id="selectionEndInput" type="number" min="0" step="0.001" value="0" disabled />
+            </label>
+            <button id="selectAllBtn" class="tool-button" type="button" disabled>Select All</button>
+            <button id="clearSelectionBtn" class="tool-button" type="button" disabled>Clear</button>
+            <span class="selection-channel" id="selectionStatus">Selection inactive</span>
+          </div>
+        </section>
+
+        <section class="workbench">
+          <div class="edit-rack" aria-label="Audio operations">
+            <div class="rack-heading">Edit</div>
+            <div class="rack-tools">
+              <button id="trimBtn" class="operation-button" type="button" disabled>
+                <span aria-hidden="true">✂</span><strong>Trim</strong>
+              </button>
+              <button id="deleteBtn" class="operation-button" type="button" disabled>
+                <span aria-hidden="true">⌫</span><strong>Delete</strong>
+              </button>
+              <button id="silenceBtn" class="operation-button" type="button" disabled>
+                <span aria-hidden="true">□</span><strong>Silence</strong>
+              </button>
+              <button id="reverseBtn" class="operation-button" type="button" disabled>
+                <span aria-hidden="true">⇆</span><strong>Reverse</strong>
+              </button>
+              <button id="fadeInBtn" class="operation-button" type="button" disabled>
+                <span aria-hidden="true">◿</span><strong>Fade In</strong>
+              </button>
+              <button id="fadeOutBtn" class="operation-button" type="button" disabled>
+                <span aria-hidden="true">◺</span><strong>Fade Out</strong>
+              </button>
+              <button id="normalizeBtn" class="operation-button" type="button" disabled>
+                <span aria-hidden="true">↕</span><strong>Normalize</strong>
+              </button>
+            </div>
+          </div>
+
+          <div class="slice-rack" aria-label="Sample slices">
+            <div class="rack-heading">
+              <span>Slices</span>
+              <button id="addSliceBtn" class="tool-button small" type="button" disabled>+ Slice</button>
+            </div>
+            <div id="sliceList" class="slice-list">
+              <div class="slice-empty">No slices</div>
+            </div>
+          </div>
+
+          <div class="export-rack" aria-label="Export">
+            <div class="rack-heading">Export</div>
+            <label class="export-name">
+              <span>Name</span>
+              <input id="exportNameInput" type="text" value="sample" maxlength="80" />
+            </label>
+            <div class="export-actions">
+              <button id="exportSelectionBtn" class="tool-button accent" type="button" disabled>
+                Export Selection
+              </button>
+              <button id="exportAllBtn" class="tool-button" type="button" disabled>
+                Export Audio
+              </button>
+            </div>
+            <div class="export-format">WAV · PCM 16-bit · working rate</div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="statusbar">
+        <span id="statusMessage">Ready</span>
+        <span id="audioStats">0 samples</span>
+      </footer>
+    </div>
+
+    <script type="module" src="./editor.js"></script>
+  </body>
+</html>

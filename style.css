@@ -140,6 +140,7 @@ body {
   font: inherit;
   cursor: pointer;
   transition: filter 0.15s ease;
+  text-decoration: none;
 }
 
 .btn:hover {
