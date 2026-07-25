@@ -70,6 +70,11 @@ const ui = {
   trackTypeSelect: document.getElementById("trackTypeSelect"),
   editorOverlay: document.getElementById("editorOverlay"),
   editorTitle: document.getElementById("editorTitle"),
+  pianoZoomControls: document.getElementById("pianoZoomControls"),
+  pianoSnapSelect: document.getElementById("pianoSnapSelect"),
+  pianoZoomOutBtn: document.getElementById("pianoZoomOutBtn"),
+  pianoZoomInBtn: document.getElementById("pianoZoomInBtn"),
+  pianoZoomValue: document.getElementById("pianoZoomValue"),
   previewBtn: document.getElementById("previewBtn"),
   closeEditorBtn: document.getElementById("closeEditorBtn"),
   pianoRoll: document.getElementById("pianoRoll"),
@@ -136,6 +141,9 @@ const cachedProject = loadProjectFromCache();
 let project = cachedProject || normalizeProject(createDefaultProject());
 let snap = parseFloat(ui.snapSelect.value);
 let zoom = 72;
+const PIANO_ZOOM_LEVELS = [48, 72, 96, 120, 160, 224, 320, 448, 640];
+const PIANO_ZOOM_BASE = 120;
+let pianoZoom = PIANO_ZOOM_BASE;
 let loopEnabled = false;
 let isPlaying = false;
 let cursorBeat = 0;
@@ -1960,13 +1968,15 @@ function refreshEditor() {
 
   if (track.type === "synth") {
     ui.editorTitle.textContent = "Piano Roll";
+    ui.pianoZoomControls.classList.remove("hidden");
     ui.pianoRoll.classList.remove("hidden");
     ui.drumEditor.classList.add("hidden");
     pianoRoll.setSnap(snap);
-    pianoRoll.setZoom(zoom);
+    pianoRoll.setZoom(pianoZoom);
     pianoRoll.setData(track, block);
   } else if (track.type === "drums") {
     ui.editorTitle.textContent = "Drum Grid";
+    ui.pianoZoomControls.classList.add("hidden");
     ui.drumEditor.classList.remove("hidden");
     ui.pianoRoll.classList.add("hidden");
     drumEditor.setZoom(zoom);
@@ -2167,12 +2177,45 @@ ui.projectNameInput.addEventListener("change", () => {
   commitChange({ reRenderTimeline: false, reRenderEditors: false });
 });
 
-ui.snapSelect.addEventListener("change", () => {
-  snap = parseFloat(ui.snapSelect.value);
+function setGridSnap(value) {
+  snap = Number.isFinite(value) ? value : 0.25;
+  ui.snapSelect.value = `${snap}`;
+  ui.pianoSnapSelect.value = `${snap}`;
   timeline.setSnap(snap);
   pianoRoll.setSnap(snap);
   drumEditor.setSnap(snap);
+}
+
+function updatePianoZoomControls() {
+  const index = PIANO_ZOOM_LEVELS.indexOf(pianoZoom);
+  ui.pianoZoomOutBtn.disabled = index <= 0;
+  ui.pianoZoomInBtn.disabled = index >= PIANO_ZOOM_LEVELS.length - 1;
+  ui.pianoZoomValue.value = `${Math.round((pianoZoom / PIANO_ZOOM_BASE) * 100)}%`;
+}
+
+function stepPianoZoom(direction) {
+  const currentIndex = PIANO_ZOOM_LEVELS.indexOf(pianoZoom);
+  const nextIndex = Math.min(
+    PIANO_ZOOM_LEVELS.length - 1,
+    Math.max(0, currentIndex + direction),
+  );
+  if (nextIndex === currentIndex) return;
+  pianoZoom = PIANO_ZOOM_LEVELS[nextIndex];
+  pianoRoll.setZoom(pianoZoom);
+  updatePianoZoomControls();
+}
+
+ui.snapSelect.addEventListener("change", () => {
+  setGridSnap(parseFloat(ui.snapSelect.value));
 });
+
+ui.pianoSnapSelect.value = `${snap}`;
+ui.pianoSnapSelect.addEventListener("change", () => {
+  setGridSnap(parseFloat(ui.pianoSnapSelect.value));
+});
+ui.pianoZoomOutBtn.addEventListener("click", () => stepPianoZoom(-1));
+ui.pianoZoomInBtn.addEventListener("click", () => stepPianoZoom(1));
+updatePianoZoomControls();
 
 ui.globalConsoleSelect.addEventListener("change", () => {
   const consoleName = ui.globalConsoleSelect.value;
@@ -2211,7 +2254,6 @@ ui.zoomSlider.value = zoom;
 ui.zoomSlider.addEventListener("input", () => {
   zoom = parseInt(ui.zoomSlider.value, 10);
   timeline.setZoom(zoom);
-  pianoRoll.setZoom(zoom);
   drumEditor.setZoom(zoom);
 });
 

@@ -69,6 +69,8 @@
               <option value="0.25" selected>1/16</option>
               <option value="0.125">1/32</option>
               <option value="0.0625">1/64</option>
+              <option value="0.03125">1/128</option>
+              <option value="0.015625">1/256</option>
             </select>
           </label>
           <label class="field">
@@ -172,6 +174,37 @@
         <div class="overlay-header">
           <div id="editorTitle">Editor</div>
           <div class="overlay-actions">
+            <div id="pianoZoomControls" class="piano-zoom-controls hidden">
+              <label class="piano-grid-control">
+                <span>Grid</span>
+                <select id="pianoSnapSelect">
+                  <option value="1">1/4</option>
+                  <option value="0.5">1/8</option>
+                  <option value="0.25">1/16</option>
+                  <option value="0.125">1/32</option>
+                  <option value="0.0625">1/64</option>
+                  <option value="0.03125">1/128</option>
+                  <option value="0.015625">1/256</option>
+                </select>
+              </label>
+              <div class="piano-zoom-stepper" aria-label="Piano roll horizontal zoom">
+                <button
+                  id="pianoZoomOutBtn"
+                  class="btn piano-zoom-btn"
+                  type="button"
+                  aria-label="Zoom out horizontally"
+                  title="Zoom out horizontally"
+                >−</button>
+                <output id="pianoZoomValue">100%</output>
+                <button
+                  id="pianoZoomInBtn"
+                  class="btn piano-zoom-btn"
+                  type="button"
+                  aria-label="Zoom in horizontally"
+                  title="Zoom in horizontally"
+                >+</button>
+              </div>
+            </div>
             <button id="previewBtn" class="btn toggle" aria-pressed="false">Preview Loop</button>
             <button id="closeEditorBtn" class="btn">Close</button>
           </div>

@@ -86,8 +86,32 @@ export class PianoRoll {
   }
 
   setZoom(zoom) {
-    this.zoom = zoom;
+    const nextZoom = clamp(Number(zoom) || this.zoom, 24, 1024);
+    if (nextZoom === this.zoom) return;
+
+    const previousWrap = this.container.querySelector(".piano-grid-wrap");
+    const previousGrid = previousWrap?.querySelector(".piano-grid");
+    const visibleLeft = previousWrap
+      ? Math.min(
+          previousWrap.scrollLeft,
+          Math.max(0, (previousGrid?.offsetWidth || 0) - previousWrap.clientWidth),
+        )
+      : 0;
+    const visibleRight = previousWrap
+      ? Math.min(previousGrid?.offsetWidth || 0, visibleLeft + previousWrap.clientWidth)
+      : 0;
+    const centerBeat = (visibleLeft + visibleRight) / 2 / this.zoom;
+    this.zoom = nextZoom;
     this.render();
+
+    const nextWrap = this.container.querySelector(".piano-grid-wrap");
+    if (!previousWrap || !nextWrap) return;
+    this.scrollLeft = clamp(
+      centerBeat * this.zoom - nextWrap.clientWidth / 2,
+      0,
+      Math.max(0, nextWrap.scrollWidth - nextWrap.clientWidth),
+    );
+    nextWrap.scrollLeft = this.scrollLeft;
   }
 
   setData(track, block) {

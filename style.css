@@ -1222,6 +1222,99 @@ main {
   border-bottom: var(--border-thin);
 }
 
+.overlay-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.piano-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.piano-zoom-controls.hidden {
+  display: none;
+}
+
+.piano-grid-control,
+.piano-zoom-stepper {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  border: var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.piano-grid-control {
+  gap: var(--space-2xs);
+  padding-left: var(--space-xs);
+  font: 0.72rem "JetBrains Mono", monospace;
+}
+
+.piano-grid-control select {
+  height: 100%;
+  border: 0;
+  border-left: var(--border-soft);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0 var(--space-xs);
+}
+
+.piano-zoom-stepper {
+  overflow: hidden;
+}
+
+.piano-zoom-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.piano-zoom-btn:disabled {
+  cursor: default;
+  filter: grayscale(1);
+  opacity: 0.42;
+}
+
+#pianoZoomValue {
+  width: 52px;
+  text-align: center;
+  font: 0.68rem "JetBrains Mono", monospace;
+}
+
+@media (max-width: 600px) {
+  #editorOverlay {
+    height: 78vh;
+    padding: var(--space-xs);
+  }
+
+  #editorOverlay .overlay-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-xs);
+    padding: var(--space-xs);
+  }
+
+  #editorOverlay .overlay-actions {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  #editorOverlay .piano-zoom-controls {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
 .overlay-body {
   flex: 1;
   display: flex;
