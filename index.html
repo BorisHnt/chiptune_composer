@@ -78,12 +78,16 @@
           <button id="quantizeBtn" class="btn">Quantize</button>
           <button id="undoBtn" class="btn">Undo</button>
           <button id="redoBtn" class="btn">Redo</button>
+          <button id="saveProjectBtn" class="btn">Save Project</button>
+          <button id="openProjectBtn" class="btn">Open Project</button>
           <button id="saveBtn" class="btn">Save JSON</button>
           <button id="loadBtn" class="btn">Load JSON</button>
           <button id="importMidiBtn" class="btn">Import MIDI</button>
           <button id="clearCacheBtn" class="btn">Clear Cache</button>
+          <input id="projectInput" type="file" accept=".chipproject,application/zip" hidden />
           <input id="loadInput" type="file" accept="application/json" hidden />
           <input id="midiInput" type="file" accept=".mid,.midi,audio/midi" hidden />
+          <input id="sampleInput" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a" hidden />
         </div>
       </header>
 
@@ -96,6 +100,7 @@
               <select id="trackTypeSelect">
                 <option value="synth">Synth</option>
                 <option value="drums">Drums</option>
+                <option value="sample">Sample</option>
               </select>
               <button id="addTrackBtn" class="btn tiny">+ Track</button>
             </div>

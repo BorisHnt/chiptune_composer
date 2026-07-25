@@ -29,6 +29,13 @@ import { PianoRoll } from "./modules/pianoRoll.js";
 import { DrumEditor } from "./modules/drumEditor.js";
 import { exportProjectToWav } from "./modules/exportWav.js";
 import { importMidiFile } from "./modules/midiImport.js";
+import {
+  clearAssets,
+  createAssetId,
+  getAsset,
+  putAsset,
+} from "./modules/assetStore.js";
+import { createChipProjectBlob, readChipProject } from "./modules/chipProject.js";
 
 const ui = {
   playBtn: document.getElementById("playBtn"),
@@ -47,10 +54,14 @@ const ui = {
   redoBtn: document.getElementById("redoBtn"),
   saveBtn: document.getElementById("saveBtn"),
   loadBtn: document.getElementById("loadBtn"),
+  saveProjectBtn: document.getElementById("saveProjectBtn"),
+  openProjectBtn: document.getElementById("openProjectBtn"),
   importMidiBtn: document.getElementById("importMidiBtn"),
   clearCacheBtn: document.getElementById("clearCacheBtn"),
+  projectInput: document.getElementById("projectInput"),
   loadInput: document.getElementById("loadInput"),
   midiInput: document.getElementById("midiInput"),
+  sampleInput: document.getElementById("sampleInput"),
   timeline: document.getElementById("timeline"),
   timeInfo: document.getElementById("timeInfo"),
   addTrackBtn: document.getElementById("addTrackBtn"),
@@ -130,6 +141,9 @@ let activeTrackId = null;
 let activeBlockId = null;
 let selectedTrackId = project.tracks[0]?.id || null;
 const selectedDrumVoiceByTrack = new Map();
+const selectedSampleBlockByTrack = new Map();
+let pendingSampleTrackId = null;
+let pendingSampleBlockId = null;
 let activeChipDrumTrackId = null;
 let activeChipDrumPadId = null;
 let chipDrumOscilloscopeFrame = null;
@@ -147,6 +161,113 @@ if (cachedProject) {
 const audioEngine = new AudioEngine();
 const safeClone = (value) => JSON.parse(JSON.stringify(value));
 const createRuntimeId = () => Math.random().toString(36).slice(2, 10);
+let assetHydrationPromise = null;
+
+function createWaveformPeaks(buffer, bucketCount = 160) {
+  const peaks = [];
+  const bucketSize = Math.max(1, Math.floor(buffer.length / bucketCount));
+  for (let bucket = 0; bucket < bucketCount; bucket += 1) {
+    const from = bucket * bucketSize;
+    const to = Math.min(buffer.length, from + bucketSize);
+    let peak = 0;
+    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+      const data = buffer.getChannelData(channel);
+      for (let index = from; index < to; index += 1) {
+        peak = Math.max(peak, Math.abs(data[index]));
+      }
+    }
+    peaks.push(peak);
+  }
+  return peaks;
+}
+
+async function ensureProjectAssetsLoaded() {
+  if (assetHydrationPromise) return assetHydrationPromise;
+  const assets = [...(project.assets || [])];
+  assetHydrationPromise = Promise.all(
+    assets.map(async (asset) => {
+      if (audioEngine.hasSampleAsset(asset.id)) return;
+      const record = await getAsset(asset.id);
+      if (!record?.blob) return;
+      await audioEngine.loadSampleAsset(asset.id, await record.blob.arrayBuffer());
+    }),
+  )
+    .catch((error) => {
+      console.warn("Some audio assets could not be loaded", error);
+    })
+    .finally(() => {
+      assetHydrationPromise = null;
+    });
+  return assetHydrationPromise;
+}
+
+async function importSampleIntoTrack(file, trackId, blockId = null) {
+  const track = project.tracks.find((item) => item.id === trackId && item.type === "sample");
+  if (!track) return;
+
+  const arrayBuffer = await file.arrayBuffer();
+  const assetId = await createAssetId(arrayBuffer);
+  const audioBuffer = await audioEngine.loadSampleAsset(assetId, arrayBuffer);
+  const asset = {
+    id: assetId,
+    name: file.name || "Sample",
+    type: file.type || "application/octet-stream",
+    size: file.size,
+    duration: audioBuffer.duration,
+    peaks: createWaveformPeaks(audioBuffer),
+  };
+  await putAsset({
+    id: assetId,
+    name: asset.name,
+    type: asset.type,
+    blob: file,
+  });
+
+  const existingAssetIndex = project.assets.findIndex((item) => item.id === assetId);
+  if (existingAssetIndex >= 0) {
+    project.assets[existingAssetIndex] = asset;
+  } else {
+    project.assets.push(asset);
+  }
+
+  let block = track.blocks.find((item) => item.id === blockId);
+  if (!block) {
+    const length = Math.max(snap, audioBuffer.duration * (project.bpm / 60));
+    block = createBlock({ startBeat: cursorBeat, length, type: "sample" });
+    track.blocks.push(block);
+  } else if (block.mode !== "loop") {
+    block.length = Math.max(snap, audioBuffer.duration * (project.bpm / 60));
+  }
+  block.assetId = assetId;
+  block.sourceStart = 0;
+  block.sourceEnd = audioBuffer.duration;
+  block.loopStart = 0;
+  block.loopEnd = audioBuffer.duration;
+  selectedSampleBlockByTrack.set(track.id, block.id);
+  selectedTrackId = track.id;
+  commitChange();
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function getSafeProjectName(extension) {
+  const rawName = (project.name || "chiptune-project").trim();
+  const safeName = rawName
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return `${safeName || "chiptune-project"}.${extension}`;
+}
 
 function findDuplicateStart(track, source) {
   const length = Math.max(0.25, source.length);
@@ -176,6 +297,9 @@ const timeline = new Timeline({
     const track = project.tracks.find((item) => item.id === trackId);
     if (!track) return;
     track.blocks = track.blocks.filter((block) => block.id !== blockId);
+    if (selectedSampleBlockByTrack.get(trackId) === blockId) {
+      selectedSampleBlockByTrack.delete(trackId);
+    }
     commitChange();
   },
   onBlockDuplicate: (trackId, blockId) => {
@@ -194,6 +318,9 @@ const timeline = new Timeline({
       }));
     }
     track.blocks.push(clone);
+    if (track.type === "sample") {
+      selectedSampleBlockByTrack.set(track.id, clone.id);
+    }
     commitChange();
   },
   onBlockChange: (trackId, blockId, changes) => {
@@ -210,6 +337,10 @@ const timeline = new Timeline({
   onAddBlock: (trackId) => {
     const track = project.tracks.find((item) => item.id === trackId);
     if (!track) return;
+    if (track.type === "sample") {
+      requestSampleFile(track.id);
+      return;
+    }
     const newBlock = createBlock({ startBeat: cursorBeat, length: 4, type: track.type });
     if (track.type === "drums") {
       ensureDrumPattern(newBlock, getDrumRowsForConsole(track.console));
@@ -269,6 +400,12 @@ const timeline = new Timeline({
   },
   onTrackSelect: (trackId) => {
     selectTrack(trackId);
+  },
+  onBlockSelect: (trackId, blockId) => {
+    const track = project.tracks.find((item) => item.id === trackId);
+    if (track?.type !== "sample") return;
+    selectedSampleBlockByTrack.set(trackId, blockId);
+    renderDevicePanel();
   },
   onCursorChange: (beat) => {
     cursorBeat = beat;
@@ -374,6 +511,232 @@ function createDeviceField(labelText, control) {
   label.appendChild(labelSpan);
   label.appendChild(control);
   return label;
+}
+
+function getSelectedSampleBlock(track) {
+  if (!track || track.type !== "sample") return null;
+  const selectedId = selectedSampleBlockByTrack.get(track.id);
+  const selected = track.blocks.find((block) => block.id === selectedId);
+  const block = selected || track.blocks[0] || null;
+  if (block) selectedSampleBlockByTrack.set(track.id, block.id);
+  return block;
+}
+
+function requestSampleFile(trackId, blockId = null) {
+  pendingSampleTrackId = trackId;
+  pendingSampleBlockId = blockId;
+  ui.sampleInput.click();
+}
+
+function createSampleNumberControl(block, key, { min, max, step }) {
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = min;
+  input.max = max;
+  input.step = step;
+  input.value = Number.isFinite(block[key]) ? block[key] : min;
+  input.addEventListener("change", () => {
+    const parsed = parseFloat(input.value);
+    block[key] = Math.min(max, Math.max(min, Number.isFinite(parsed) ? parsed : min));
+    commitChange({ reRenderEditors: false });
+  });
+  return input;
+}
+
+function drawSampleWaveform(canvas, asset, block) {
+  const context = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = "#172027";
+  context.fillRect(0, 0, width, height);
+
+  const peaks = asset?.peaks || [];
+  context.strokeStyle = "#58c7c2";
+  context.lineWidth = 1.5;
+  context.beginPath();
+  peaks.forEach((peak, index) => {
+    const x = (index / Math.max(1, peaks.length - 1)) * width;
+    const amplitude = peak * height * 0.44;
+    context.moveTo(x, height / 2 - amplitude);
+    context.lineTo(x, height / 2 + amplitude);
+  });
+  context.stroke();
+
+  const duration = Math.max(0.001, asset?.duration || 0.001);
+  const sourceStart = (block.sourceStart / duration) * width;
+  const sourceEnd = ((block.sourceEnd ?? duration) / duration) * width;
+  context.fillStyle = "rgba(8, 12, 15, 0.58)";
+  context.fillRect(0, 0, sourceStart, height);
+  context.fillRect(sourceEnd, 0, width - sourceEnd, height);
+
+  if (block.mode === "loop") {
+    const loopStart = ((block.loopStart ?? block.sourceStart) / duration) * width;
+    const loopEnd = ((block.loopEnd ?? block.sourceEnd ?? duration) / duration) * width;
+    context.fillStyle = "rgba(244, 184, 73, 0.2)";
+    context.fillRect(loopStart, 0, loopEnd - loopStart, height);
+    context.strokeStyle = "#f4b849";
+    context.strokeRect(loopStart, 1, loopEnd - loopStart, height - 2);
+  }
+}
+
+function renderSampleDevice(track) {
+  ui.addDeviceBtn.disabled = false;
+  ui.addDeviceBtn.title = "Import sample";
+  ui.addDeviceBtn.setAttribute("aria-label", "Import sample");
+
+  const block = getSelectedSampleBlock(track);
+  const asset = project.assets?.find((item) => item.id === block?.assetId);
+  const sampleBox = document.createElement("div");
+  sampleBox.className = "sample-device";
+
+  const head = document.createElement("div");
+  head.className = "sample-device-head";
+  const heading = document.createElement("div");
+  heading.className = "sample-device-heading";
+  const title = document.createElement("strong");
+  title.textContent = asset?.name || "Sample Player";
+  const detail = document.createElement("span");
+  detail.textContent = block
+    ? `${block.mode === "loop" ? "Loop" : "One Shot"} · ${asset?.duration?.toFixed(2) || "0.00"} s`
+    : "No audio clip";
+  heading.append(title, detail);
+
+  const actions = document.createElement("div");
+  actions.className = "sample-device-actions";
+  const importButton = document.createElement("button");
+  importButton.type = "button";
+  importButton.className = "btn tiny";
+  importButton.textContent = block ? "Add Sample" : "Import Sample";
+  importButton.addEventListener("click", () => requestSampleFile(track.id));
+  actions.appendChild(importButton);
+
+  if (block) {
+    const replaceButton = document.createElement("button");
+    replaceButton.type = "button";
+    replaceButton.className = "btn tiny";
+    replaceButton.textContent = "Replace";
+    replaceButton.addEventListener("click", () => requestSampleFile(track.id, block.id));
+    const previewButton = document.createElement("button");
+    previewButton.type = "button";
+    previewButton.className = "btn tiny";
+    previewButton.textContent = "Preview";
+    previewButton.addEventListener("click", async () => {
+      await ensureProjectAssetsLoaded();
+      audioEngine.previewBlock(track, block, project.bpm, { loop: false });
+    });
+    actions.append(replaceButton, previewButton);
+  }
+
+  head.append(heading, actions);
+  sampleBox.appendChild(head);
+
+  if (!block) {
+    const empty = document.createElement("div");
+    empty.className = "device-empty";
+    empty.textContent = "Import an audio file to create a clip.";
+    sampleBox.appendChild(empty);
+    ui.deviceContent.appendChild(sampleBox);
+    return;
+  }
+
+  const waveform = document.createElement("canvas");
+  waveform.className = "sample-waveform";
+  waveform.width = 720;
+  waveform.height = 116;
+  sampleBox.appendChild(waveform);
+
+  const controls = document.createElement("div");
+  controls.className = "sample-device-controls";
+  const mode = document.createElement("div");
+  mode.className = "sample-mode";
+  ["one-shot", "loop"].forEach((value) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn tiny toggle";
+    button.textContent = value === "loop" ? "Loop" : "One Shot";
+    button.setAttribute("aria-pressed", block.mode === value ? "true" : "false");
+    button.addEventListener("click", () => {
+      block.mode = value;
+      commitChange({ reRenderEditors: false });
+    });
+    mode.appendChild(button);
+  });
+  controls.appendChild(createDeviceField("Mode", mode));
+
+  const duration = Math.max(0.001, asset?.duration || block.sourceEnd || 1);
+  controls.appendChild(
+    createDeviceField(
+      "Gain",
+      createSampleNumberControl(block, "gain", { min: 0, max: 2, step: 0.01 }),
+    ),
+  );
+  controls.appendChild(
+    createDeviceField(
+      "Pitch",
+      createSampleNumberControl(block, "pitch", { min: -24, max: 24, step: 1 }),
+    ),
+  );
+  controls.appendChild(
+    createDeviceField(
+      "Start",
+      createSampleNumberControl(block, "sourceStart", { min: 0, max: duration, step: 0.01 }),
+    ),
+  );
+  controls.appendChild(
+    createDeviceField(
+      "End",
+      createSampleNumberControl(block, "sourceEnd", { min: 0.001, max: duration, step: 0.01 }),
+    ),
+  );
+  if (block.mode === "loop") {
+    controls.appendChild(
+      createDeviceField(
+        "Loop In",
+        createSampleNumberControl(block, "loopStart", { min: 0, max: duration, step: 0.01 }),
+      ),
+    );
+    controls.appendChild(
+      createDeviceField(
+        "Loop Out",
+        createSampleNumberControl(block, "loopEnd", { min: 0.001, max: duration, step: 0.01 }),
+      ),
+    );
+  }
+  controls.appendChild(
+    createDeviceField(
+      "Fade In",
+      createSampleNumberControl(block, "fadeIn", { min: 0, max: 10, step: 0.01 }),
+    ),
+  );
+  controls.appendChild(
+    createDeviceField(
+      "Fade Out",
+      createSampleNumberControl(block, "fadeOut", { min: 0, max: 10, step: 0.01 }),
+    ),
+  );
+
+  const reverse = document.createElement("button");
+  reverse.type = "button";
+  reverse.className = "btn tiny toggle";
+  reverse.textContent = "Reverse";
+  reverse.setAttribute("aria-pressed", block.reverse ? "true" : "false");
+  reverse.addEventListener("click", () => {
+    block.reverse = !block.reverse;
+    commitChange({ reRenderEditors: false });
+  });
+  controls.appendChild(createDeviceField("Direction", reverse));
+
+  if (asset && !audioEngine.hasSampleAsset(asset.id)) {
+    const status = document.createElement("div");
+    status.className = "sample-missing";
+    status.textContent = "Audio asset is not available in this browser.";
+    controls.appendChild(status);
+  }
+
+  sampleBox.appendChild(controls);
+  ui.deviceContent.appendChild(sampleBox);
+  drawSampleWaveform(waveform, asset, block);
 }
 
 function createAdsrSlider(track, key, labelText, min, max, step) {
@@ -693,9 +1056,15 @@ function renderDevicePanel() {
   }
 
   ui.addDeviceBtn.disabled = false;
+  ui.addDeviceBtn.title = "Choose console";
+  ui.addDeviceBtn.setAttribute("aria-label", "Choose console");
 
   if (track.type === "drums") {
     renderDrumDevice(track);
+    return;
+  }
+  if (track.type === "sample") {
+    renderSampleDevice(track);
     return;
   }
 
@@ -755,6 +1124,10 @@ function renderDevicePanel() {
 function openConsolePicker() {
   const track = getSelectedTrack();
   if (!track) return;
+  if (track.type === "sample") {
+    requestSampleFile(track.id);
+    return;
+  }
   ui.consolePickerList.innerHTML = "";
   ui.consolePickerTitle.textContent =
     track.type === "drums" ? "Choose Drum Console" : "Choose Synth Console";
@@ -1134,16 +1507,24 @@ function applyState(nextState) {
   if (isPlaying) {
     restartPlayback();
   }
+  void ensureProjectAssetsLoaded().then(() => renderDevicePanel());
 }
 
-function restartPlayback() {
+async function restartPlayback() {
   audioEngine.stop();
+  await ensureProjectAssetsLoaded();
   audioEngine.playProject(project, { loop: loopEnabled });
   scheduleStopTimer();
 }
 
 function openEditor(trackId, blockId) {
   selectTrack(trackId);
+  const track = project.tracks.find((item) => item.id === trackId);
+  if (track?.type === "sample") {
+    selectedSampleBlockByTrack.set(trackId, blockId);
+    renderDevicePanel();
+    return;
+  }
   activeTrackId = trackId;
   activeBlockId = blockId;
   previewEnabled = false;
@@ -1190,12 +1571,17 @@ function refreshEditor() {
     pianoRoll.setSnap(snap);
     pianoRoll.setZoom(zoom);
     pianoRoll.setData(track, block);
-  } else {
+  } else if (track.type === "drums") {
     ui.editorTitle.textContent = "Drum Grid";
     ui.drumEditor.classList.remove("hidden");
     ui.pianoRoll.classList.add("hidden");
     drumEditor.setZoom(zoom);
     drumEditor.setData(track, block);
+  } else {
+    closeEditor();
+    selectedSampleBlockByTrack.set(track.id, block.id);
+    renderDevicePanel();
+    return;
   }
 
   if (previewEnabled) {
@@ -1310,7 +1696,7 @@ function scheduleStopTimer() {
   }, duration);
 }
 
-ui.playBtn.addEventListener("click", () => {
+ui.playBtn.addEventListener("click", async () => {
   if (isPlaying) return;
   isPlaying = true;
   if (previewEnabled) {
@@ -1324,6 +1710,7 @@ ui.playBtn.addEventListener("click", () => {
     isPlaying = false;
     return;
   }
+  await ensureProjectAssetsLoaded();
   audioEngine.playProject(project, { loop: loopEnabled });
   scheduleStopTimer();
   animationFrame = window.requestAnimationFrame(tick);
@@ -1354,7 +1741,10 @@ ui.addTrackBtn.addEventListener("click", () => {
   if (project.tracks.length >= MAX_TRACKS) {
     return;
   }
-  const type = ui.trackTypeSelect?.value === "drums" ? "drums" : "synth";
+  const requestedType = ui.trackTypeSelect?.value;
+  const type = ["synth", "drums", "sample"].includes(requestedType)
+    ? requestedType
+    : "synth";
   const newTrack = createTrack(project.tracks.length, { type });
   project.tracks.push(newTrack);
   selectedTrackId = newTrack.id;
@@ -1395,7 +1785,7 @@ ui.globalConsoleSelect.addEventListener("change", () => {
   if (!consoleName) return;
   const waves = CONSOLE_WAVES[consoleName] || [];
   project.tracks.forEach((track) => {
-    if (track.type === "drums") return;
+    if (track.type !== "synth") return;
     track.console = consoleName;
     track.waveform = waves[0] || track.waveform;
   });
@@ -1414,7 +1804,7 @@ ui.globalWaveformSelect.addEventListener("change", () => {
   const wave = ui.globalWaveformSelect.value;
   if (!wave) return;
   project.tracks.forEach((track) => {
-    if (track.type === "drums") return;
+    if (track.type !== "synth") return;
     const waves = CONSOLE_WAVES[track.console] || [];
     if (!waves.includes(wave)) return;
     track.waveform = wave;
@@ -1454,28 +1844,64 @@ ui.saveBtn.addEventListener("click", () => {
   const blob = new Blob([JSON.stringify(project, null, 2)], {
     type: "application/json",
   });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  const rawName = (project.name || "chiptune-project").trim();
-  const safeName = rawName
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-  anchor.download = `${safeName || "chiptune-project"}.json`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, getSafeProjectName("json"));
 });
 
 ui.loadBtn.addEventListener("click", () => {
   ui.loadInput.click();
 });
 
+ui.saveProjectBtn.addEventListener("click", async () => {
+  try {
+    const blob = await createChipProjectBlob(project, getAsset);
+    downloadBlob(blob, getSafeProjectName("chipproject"));
+  } catch (error) {
+    console.error("Failed to save project bundle", error);
+    window.alert(`Project export failed: ${error.message}`);
+  }
+});
+
+ui.openProjectBtn.addEventListener("click", () => {
+  ui.projectInput.click();
+});
+
 ui.importMidiBtn.addEventListener("click", () => {
   ui.midiInput.click();
+});
+
+ui.sampleInput.addEventListener("change", async () => {
+  const file = ui.sampleInput.files[0];
+  const trackId = pendingSampleTrackId;
+  const blockId = pendingSampleBlockId;
+  ui.sampleInput.value = "";
+  pendingSampleTrackId = null;
+  pendingSampleBlockId = null;
+  if (!file || !trackId) return;
+  try {
+    await importSampleIntoTrack(file, trackId, blockId);
+  } catch (error) {
+    console.error("Failed to import sample", error);
+    window.alert(`Sample import failed: ${error.message}`);
+  }
+});
+
+ui.projectInput.addEventListener("change", async () => {
+  const file = ui.projectInput.files[0];
+  ui.projectInput.value = "";
+  if (!file) return;
+  try {
+    const imported = await readChipProject(file);
+    for (const asset of imported.assets) {
+      await putAsset(asset);
+    }
+    project = normalizeProject(imported.project);
+    history.reset(project);
+    await ensureProjectAssetsLoaded();
+    applyState(project);
+  } catch (error) {
+    console.error("Failed to open project bundle", error);
+    window.alert(`Project import failed: ${error.message}`);
+  }
 });
 
 ui.loadInput.addEventListener("change", async () => {
@@ -1486,6 +1912,7 @@ ui.loadInput.addEventListener("change", async () => {
     const parsed = JSON.parse(text);
     project = normalizeProject(parsed);
     history.reset(project);
+    await ensureProjectAssetsLoaded();
     applyState(project);
   } catch (error) {
     console.error("Invalid JSON", error);
@@ -1507,13 +1934,15 @@ ui.midiInput.addEventListener("change", async () => {
   ui.midiInput.value = "";
 });
 
-ui.clearCacheBtn.addEventListener("click", () => {
-  const confirmClear = window.confirm("Clear cached project data?");
+ui.clearCacheBtn.addEventListener("click", async () => {
+  const confirmClear = window.confirm("Clear cached project data and stored audio assets?");
   if (!confirmClear) return;
   localStorage.removeItem(STORAGE_KEY);
+  await clearAssets();
 });
 
 ui.exportBtn.addEventListener("click", async () => {
+  await ensureProjectAssetsLoaded();
   await exportProjectToWav(project);
 });
 
@@ -1613,3 +2042,4 @@ if (project.tracks[0].blocks.length === 0) {
 
 timeline.setSelectedTrackId(selectedTrackId);
 renderDevicePanel();
+void ensureProjectAssetsLoaded().then(() => renderDevicePanel());

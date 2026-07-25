@@ -18,6 +18,7 @@ export class Timeline {
     onTrackMove,
     onTrackDelete,
     onTrackSelect,
+    onBlockSelect,
   }) {
     this.container = container;
     this.project = project;
@@ -33,6 +34,7 @@ export class Timeline {
     this.onTrackMove = onTrackMove;
     this.onTrackDelete = onTrackDelete;
     this.onTrackSelect = onTrackSelect;
+    this.onBlockSelect = onBlockSelect;
     this.blockElements = new Map();
     this.playheadEl = null;
     this.cursorEl = null;
@@ -251,7 +253,9 @@ export class Timeline {
 
     controls.appendChild(this.wrapControl("Vol", volumeInput));
     controls.appendChild(this.wrapControl("Pan", panInput));
-    controls.appendChild(this.wrapControl("Oct", octaveInput));
+    if (track.type !== "sample") {
+      controls.appendChild(this.wrapControl("Oct", octaveInput));
+    }
     controls.appendChild(muteSoloActions);
 
     header.appendChild(title);
@@ -281,11 +285,22 @@ export class Timeline {
     blockEl.style.width = `${this.beatToPx(block.length)}px`;
     blockEl.addEventListener("pointerdown", () => {
       this.onTrackSelect?.(track.id);
+      this.onBlockSelect?.(track.id, block.id);
     });
 
     const header = document.createElement("div");
     header.className = "block-header";
-    header.innerHTML = `<span>${track.type === "drums" ? "Drum" : "MIDI"}</span>`;
+    const asset = this.project.assets?.find((item) => item.id === block.assetId);
+    const blockLabel =
+      track.type === "drums"
+        ? "Drum"
+        : track.type === "sample"
+          ? asset?.name || "Audio"
+          : "MIDI";
+    const label = document.createElement("span");
+    label.textContent = blockLabel;
+    label.title = blockLabel;
+    header.appendChild(label);
 
     const actions = document.createElement("div");
     actions.className = "block-actions";
@@ -314,6 +329,24 @@ export class Timeline {
     resizeHandle.className = "block-resize";
 
     blockEl.appendChild(header);
+    if (track.type === "sample") {
+      const waveform = document.createElement("div");
+      waveform.className = "block-waveform";
+      waveform.setAttribute("aria-hidden", "true");
+      const peaks = asset?.peaks || [];
+      const count = Math.min(48, peaks.length);
+      for (let index = 0; index < count; index += 1) {
+        const sourceIndex = Math.floor((index / Math.max(1, count - 1)) * (peaks.length - 1));
+        const bar = document.createElement("i");
+        bar.style.height = `${Math.max(4, peaks[sourceIndex] * 100)}%`;
+        waveform.appendChild(bar);
+      }
+      const mode = document.createElement("span");
+      mode.className = "block-sample-mode";
+      mode.textContent = block.mode === "loop" ? "LOOP" : "ONE SHOT";
+      waveform.appendChild(mode);
+      blockEl.appendChild(waveform);
+    }
     blockEl.appendChild(resizeHandle);
 
     blockEl.addEventListener("dblclick", (event) => {

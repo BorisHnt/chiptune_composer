@@ -125,6 +125,7 @@ const DEFAULT_TRACKS = [
   { type: "synth", console: "Atari", waveform: "square" },
   { type: "synth", console: "Sega", waveform: "fm1" },
   { type: "drums", console: "NES", waveform: "noise" },
+  { type: "sample", console: null, waveform: null },
 ];
 
 const createId = () => Math.random().toString(36).slice(2, 10);
@@ -139,21 +140,41 @@ export function createNote({ pitch, start, duration, velocity = 0.9 }) {
 }
 
 export function createBlock({ startBeat = 0, length = 4, type = "synth" } = {}) {
-  return {
+  const block = {
     id: createId(),
     startBeat,
     length,
     notes: type === "synth" ? [] : [],
     pattern: type === "drums" ? {} : [],
   };
+
+  if (type === "sample") {
+    Object.assign(block, {
+      assetId: null,
+      mode: "one-shot",
+      sourceStart: 0,
+      sourceEnd: null,
+      loopStart: 0,
+      loopEnd: null,
+      gain: 1,
+      pitch: 0,
+      reverse: false,
+      fadeIn: 0,
+      fadeOut: 0,
+    });
+  }
+
+  return block;
 }
 
 export function createTrack(index, options = {}) {
   const template = DEFAULT_TRACKS[index] || DEFAULT_TRACKS[0];
-  const requestedType = options.type === "drums" ? "drums" : options.type === "synth" ? "synth" : null;
+  const requestedType = ["synth", "drums", "sample"].includes(options.type) ? options.type : null;
   const baseTemplate = requestedType
     ? requestedType === "drums"
       ? DEFAULT_TRACKS[4]
+      : requestedType === "sample"
+        ? DEFAULT_TRACKS[5]
       : DEFAULT_TRACKS[0]
     : template;
   return {
@@ -179,6 +200,7 @@ export function createDefaultProject() {
     name: "Untitled Project",
     bpm: 120,
     masterVolume: 0.9,
+    assets: [],
     tracks,
   };
 }
@@ -266,11 +288,27 @@ function normalizeBlocks(blocks, type, drumRows) {
     if (type === "synth") {
       normalized.notes = Array.isArray(safe.notes) ? safe.notes.map(normalizeNote) : [];
       normalized.pattern = Array.isArray(safe.pattern) ? safe.pattern : [];
-    } else {
+    } else if (type === "drums") {
       const steps = Number.isFinite(safe.pattern?.steps) ? safe.pattern.steps : 16;
       const rows = Array.isArray(drumRows) ? drumRows : DEFAULT_DRUM_ROWS;
       normalized.pattern = safe.pattern || [];
       ensureDrumPattern(normalized, rows);
+    } else {
+      normalized.assetId = typeof safe.assetId === "string" && safe.assetId ? safe.assetId : null;
+      normalized.mode = safe.mode === "loop" ? "loop" : "one-shot";
+      normalized.sourceStart = Number.isFinite(safe.sourceStart) ? Math.max(0, safe.sourceStart) : 0;
+      normalized.sourceEnd = Number.isFinite(safe.sourceEnd)
+        ? Math.max(normalized.sourceStart, safe.sourceEnd)
+        : null;
+      normalized.loopStart = Number.isFinite(safe.loopStart) ? Math.max(0, safe.loopStart) : 0;
+      normalized.loopEnd = Number.isFinite(safe.loopEnd)
+        ? Math.max(normalized.loopStart, safe.loopEnd)
+        : null;
+      normalized.gain = Number.isFinite(safe.gain) ? clamp(safe.gain, 0, 2) : 1;
+      normalized.pitch = Number.isFinite(safe.pitch) ? clamp(safe.pitch, -24, 24) : 0;
+      normalized.reverse = Boolean(safe.reverse);
+      normalized.fadeIn = Number.isFinite(safe.fadeIn) ? clamp(safe.fadeIn, 0, 10) : 0;
+      normalized.fadeOut = Number.isFinite(safe.fadeOut) ? clamp(safe.fadeOut, 0, 10) : 0;
     }
 
     return normalized;
@@ -280,7 +318,19 @@ function normalizeBlocks(blocks, type, drumRows) {
 function normalizeTrack(track, index) {
   const base = createTrack(index);
   const safe = isObject(track) ? track : {};
-  const type = safe.type === "drums" ? "drums" : safe.type === "synth" ? "synth" : base.type;
+  const type = ["synth", "drums", "sample"].includes(safe.type) ? safe.type : base.type;
+  if (type === "sample") {
+    const sampleBase = createTrack(index, { type: "sample" });
+    return {
+      ...sampleBase,
+      id: typeof safe.id === "string" ? safe.id : sampleBase.id,
+      volume: Number.isFinite(safe.volume) ? clamp(safe.volume, 0, 1) : sampleBase.volume,
+      pan: Number.isFinite(safe.pan) ? clamp(safe.pan, -1, 1) : sampleBase.pan,
+      mute: Boolean(safe.mute),
+      solo: Boolean(safe.solo),
+      blocks: normalizeBlocks(safe.blocks, type, []),
+    };
+  }
   const availableConsoles = type === "drums" ? DRUM_KITS : CONSOLE_WAVES;
   const consoleName = availableConsoles[safe.console] ? safe.console : base.console;
   const waves = CONSOLE_WAVES[consoleName] || [];
@@ -304,6 +354,38 @@ function normalizeTrack(track, index) {
   };
 }
 
+function normalizeAssets(assets) {
+  if (!Array.isArray(assets)) return [];
+  const ids = new Set();
+
+  return assets
+    .filter((asset) => isObject(asset) && typeof asset.id === "string" && asset.id)
+    .slice(0, 512)
+    .map((asset) => ({
+      id: asset.id.slice(0, 128),
+      name:
+        typeof asset.name === "string" && asset.name.trim()
+          ? asset.name.trim().slice(0, 180)
+          : "Sample",
+      type:
+        typeof asset.type === "string" && asset.type.trim()
+          ? asset.type.trim().slice(0, 100)
+          : "application/octet-stream",
+      size: Number.isFinite(asset.size) ? Math.max(0, Math.round(asset.size)) : 0,
+      duration: Number.isFinite(asset.duration) ? Math.max(0, asset.duration) : 0,
+      peaks: Array.isArray(asset.peaks)
+        ? asset.peaks
+            .slice(0, 512)
+            .map((peak) => (Number.isFinite(peak) ? clamp(peak, 0, 1) : 0))
+        : [],
+    }))
+    .filter((asset) => {
+      if (ids.has(asset.id)) return false;
+      ids.add(asset.id);
+      return true;
+    });
+}
+
 export function normalizeProject(rawProject) {
   const safe = isObject(rawProject) ? rawProject : {};
   const bpm = Number.isFinite(safe.bpm) ? clamp(safe.bpm, 40, 240) : 120;
@@ -316,7 +398,7 @@ export function normalizeProject(rawProject) {
     return normalizeTrack(incoming, index);
   });
 
-  return { name, bpm, masterVolume, tracks };
+  return { name, bpm, masterVolume, assets: normalizeAssets(safe.assets), tracks };
 }
 
 export function ensureDrumPattern(block, rows = DEFAULT_DRUM_ROWS) {

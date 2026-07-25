@@ -9,6 +9,8 @@ import {
 const PULSE_WAVES = new Map();
 const NOISE_BUFFERS = new Map();
 const WAVETABLE_BUFFERS = new Map();
+const SAMPLE_BUFFERS = new Map();
+const REVERSED_SAMPLE_BUFFERS = new WeakMap();
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 
 const midiToFrequency = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
@@ -816,9 +818,94 @@ function scheduleDrumPattern(context, track, trackChain, block, secondsPerBeat, 
   });
 }
 
-function createTrackOutput(context, master, volume = 0.8) {
+function getReversedSampleBuffer(context, original) {
+  let reversed = REVERSED_SAMPLE_BUFFERS.get(original);
+  if (reversed) return reversed;
+
+  reversed = context.createBuffer(
+    original.numberOfChannels,
+    original.length,
+    original.sampleRate,
+  );
+  for (let channel = 0; channel < original.numberOfChannels; channel += 1) {
+    const source = original.getChannelData(channel);
+    const destination = reversed.getChannelData(channel);
+    for (let index = 0; index < source.length; index += 1) {
+      destination[index] = source[source.length - index - 1];
+    }
+  }
+  REVERSED_SAMPLE_BUFFERS.set(original, reversed);
+  return reversed;
+}
+
+function scheduleSampleBlock(context, trackChain, block, secondsPerBeat, startOffset) {
+  const originalBuffer = SAMPLE_BUFFERS.get(block.assetId);
+  if (!originalBuffer) return;
+
+  const source = context.createBufferSource();
+  const playbackRate = Math.pow(2, (block.pitch || 0) / 12);
+  source.playbackRate.value = playbackRate;
+  source.buffer = block.reverse ? getReversedSampleBuffer(context, originalBuffer) : originalBuffer;
+
+  const bufferDuration = source.buffer.duration;
+  const originalStart = clamp(block.sourceStart || 0, 0, Math.max(0, bufferDuration - 0.001));
+  const originalEnd = clamp(
+    Number.isFinite(block.sourceEnd) ? block.sourceEnd : bufferDuration,
+    originalStart + 0.001,
+    bufferDuration,
+  );
+  const sourceStart = block.reverse ? bufferDuration - originalEnd : originalStart;
+  const sourceEnd = block.reverse ? bufferDuration - originalStart : originalEnd;
+  const eventStart = startOffset + block.startBeat * secondsPerBeat;
+  const clipDuration = Math.max(0.001, block.length * secondsPerBeat);
+  const eventEnd = eventStart + clipDuration;
+
+  if (block.mode === "loop") {
+    const originalLoopStart = clamp(
+      Number.isFinite(block.loopStart) ? block.loopStart : originalStart,
+      originalStart,
+      originalEnd - 0.001,
+    );
+    const originalLoopEnd = clamp(
+      Number.isFinite(block.loopEnd) ? block.loopEnd : originalEnd,
+      originalLoopStart + 0.001,
+      originalEnd,
+    );
+    source.loop = true;
+    source.loopStart = block.reverse ? bufferDuration - originalLoopEnd : originalLoopStart;
+    source.loopEnd = block.reverse ? bufferDuration - originalLoopStart : originalLoopEnd;
+  }
+
+  const gain = context.createGain();
+  const level = clamp(Number.isFinite(block.gain) ? block.gain : 1, 0, 2);
+  const fadeIn = clamp(block.fadeIn || 0, 0, clipDuration / 2);
+  const fadeOut = clamp(block.fadeOut || 0, 0, clipDuration / 2);
+  const naturalEnd = eventStart + (sourceEnd - sourceStart) / playbackRate;
+  const stopTime = block.mode === "loop" ? eventEnd : Math.min(eventEnd, naturalEnd);
+
+  gain.gain.setValueAtTime(fadeIn > 0 ? 0.0001 : level, eventStart);
+  if (fadeIn > 0) gain.gain.linearRampToValueAtTime(level, eventStart + fadeIn);
+  if (fadeOut > 0 && stopTime - fadeOut > eventStart) {
+    gain.gain.setValueAtTime(level, stopTime - fadeOut);
+    gain.gain.linearRampToValueAtTime(0.0001, stopTime);
+  }
+
+  source.connect(gain);
+  gain.connect(trackChain);
+  source.start(eventStart, sourceStart);
+  source.stop(stopTime);
+}
+
+function createTrackOutput(context, master, volume = 0.8, pan = 0) {
   const trackGain = context.createGain();
   trackGain.gain.value = volume;
+  if (context.createStereoPanner) {
+    const panner = context.createStereoPanner();
+    panner.pan.value = clamp(pan, -1, 1);
+    trackGain.connect(panner);
+    panner.connect(master);
+    return { input: trackGain, output: panner };
+  }
   trackGain.connect(master);
   return { input: trackGain, output: trackGain };
 }
@@ -870,7 +957,7 @@ export function scheduleProject(context, project, options = {}) {
       trackOutput = trackGains.get(track.id);
     }
     if (!trackOutput) {
-      trackOutput = createTrackOutput(context, master, track.volume ?? 0.8);
+      trackOutput = createTrackOutput(context, master, track.volume ?? 0.8, track.pan ?? 0);
       if (trackGains) {
         trackGains.set(track.id, trackOutput);
       }
@@ -883,8 +970,10 @@ export function scheduleProject(context, project, options = {}) {
           const duration = note.duration * secondsPerBeat;
           scheduleSynthNote(context, track, trackOutput.input, note, noteStart, duration);
         });
-      } else {
+      } else if (track.type === "drums") {
         scheduleDrumPattern(context, track, trackOutput.input, block, secondsPerBeat, startTime);
+      } else if (track.type === "sample") {
+        scheduleSampleBlock(context, trackOutput.input, block, secondsPerBeat, startTime);
       }
     });
   });
@@ -953,6 +1042,17 @@ export class AudioEngine {
 
   unlock() {
     return this.runWithContext(() => {});
+  }
+
+  async loadSampleAsset(assetId, arrayBuffer) {
+    if (!assetId || !this.ensureContext()) return null;
+    const buffer = await this.context.decodeAudioData(arrayBuffer.slice(0));
+    SAMPLE_BUFFERS.set(assetId, buffer);
+    return buffer;
+  }
+
+  hasSampleAsset(assetId) {
+    return SAMPLE_BUFFERS.has(assetId);
   }
 
   setMasterVolume(value) {
@@ -1071,7 +1171,12 @@ export class AudioEngine {
       const now = this.context.currentTime + 0.01;
       const tempNote = { pitch, velocity: 0.9 };
       const master = this.previewBus || this.masterGain;
-      const trackOutput = createTrackOutput(this.context, master, track.volume ?? 0.8);
+      const trackOutput = createTrackOutput(
+        this.context,
+        master,
+        track.volume ?? 0.8,
+        track.pan ?? 0,
+      );
       scheduleSynthNote(this.context, track, trackOutput.input, tempNote, now, duration);
     });
   }
@@ -1083,6 +1188,7 @@ export class AudioEngine {
         this.context,
         this.drumPreviewAnalyser,
         track.volume ?? 0.8,
+        track.pan ?? 0,
       );
       scheduleDrumHit(this.context, track, trackOutput.input, drum, now, level);
     });
@@ -1101,16 +1207,30 @@ export class AudioEngine {
       this.previewBus = createBus(this.context, this.masterGain, 1);
 
       const scheduleOnce = (loopStart) => {
-        const trackOutput = createTrackOutput(this.context, this.previewBus, track.volume ?? 0.8);
+        const trackOutput = createTrackOutput(
+          this.context,
+          this.previewBus,
+          track.volume ?? 0.8,
+          track.pan ?? 0,
+        );
         if (track.type === "synth") {
           block.notes.forEach((note) => {
             const noteStart = loopStart + note.start * secondsPerBeat;
             const duration = note.duration * secondsPerBeat;
             scheduleSynthNote(this.context, track, trackOutput.input, note, noteStart, duration);
           });
-        } else {
+        } else if (track.type === "drums") {
           const previewBlock = { ...block, startBeat: 0 };
           scheduleDrumPattern(this.context, track, trackOutput.input, previewBlock, secondsPerBeat, loopStart);
+        } else if (track.type === "sample") {
+          const previewBlock = { ...block, startBeat: 0 };
+          scheduleSampleBlock(
+            this.context,
+            trackOutput.input,
+            previewBlock,
+            secondsPerBeat,
+            loopStart,
+          );
         }
       };
 
