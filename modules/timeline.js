@@ -366,6 +366,47 @@ export class Timeline {
     return peaks[sourceIndex] || 0;
   }
 
+  createMidiPreview(block) {
+    const preview = document.createElement("div");
+    preview.className = "block-midi-preview";
+    preview.setAttribute("aria-hidden", "true");
+
+    const notes = Array.isArray(block.notes)
+      ? block.notes.filter(
+          (note) =>
+            Number.isFinite(note.pitch) &&
+            Number.isFinite(note.start) &&
+            Number.isFinite(note.duration) &&
+            note.duration > 0 &&
+            note.start < block.length,
+        )
+      : [];
+    if (!notes.length) return preview;
+
+    const pitches = notes.map((note) => note.pitch);
+    const minPitch = Math.min(...pitches) - 1;
+    const maxPitch = Math.max(...pitches) + 1;
+    const pitchSpan = Math.max(3, maxPitch - minPitch + 1);
+    const noteHeight = clamp(72 / pitchSpan, 5, 28);
+
+    notes.forEach((note) => {
+      const start = clamp(note.start, 0, block.length);
+      const end = clamp(note.start + note.duration, 0, block.length);
+      if (end <= start) return;
+
+      const noteEl = document.createElement("i");
+      noteEl.className = "block-midi-note";
+      noteEl.style.left = `${(start / block.length) * 100}%`;
+      noteEl.style.width = `${Math.max(0.25, ((end - start) / block.length) * 100)}%`;
+      noteEl.style.top = `${((maxPitch - note.pitch) / pitchSpan) * 100}%`;
+      noteEl.style.height = `${noteHeight}%`;
+      noteEl.style.opacity = `${clamp(note.velocity ?? 0.9, 0.35, 1)}`;
+      preview.appendChild(noteEl);
+    });
+
+    return preview;
+  }
+
   createBlockElement(track, block) {
     const blockEl = document.createElement("div");
     blockEl.className = `block ${track.type}`;
@@ -419,13 +460,16 @@ export class Timeline {
     rightResizeHandle.title = "Resize clip end";
 
     blockEl.appendChild(header);
-    if (track.type === "sample") {
+    if (track.type === "synth") {
+      blockEl.appendChild(this.createMidiPreview(block));
+      this.attachDragHandlers(blockEl, null, rightResizeHandle, track, block);
+    } else if (track.type === "sample") {
       const waveform = document.createElement("div");
       waveform.className = "block-waveform";
       waveform.setAttribute("aria-hidden", "true");
       const peaks = asset?.peaks || [];
       const count = peaks.length
-        ? Math.min(192, Math.max(12, Math.ceil(this.beatToPx(block.length) / 4)))
+        ? Math.min(512, Math.max(16, Math.ceil(this.beatToPx(block.length) / 3)))
         : 0;
       for (let index = 0; index < count; index += 1) {
         const bar = document.createElement("i");

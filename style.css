@@ -446,6 +446,38 @@ main {
   background: rgba(255, 118, 104, 0.42);
 }
 
+.block-midi-preview {
+  position: relative;
+  flex: 1;
+  min-height: 30px;
+  margin: 2px 1px 0;
+  overflow: hidden;
+  border-top: 1px solid rgba(106, 52, 76, 0.15);
+}
+
+.block-midi-preview::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to right,
+    rgba(106, 52, 76, 0.1) 0,
+    rgba(106, 52, 76, 0.1) 1px,
+    transparent 1px,
+    transparent 25%
+  );
+}
+
+.block-midi-note {
+  position: absolute;
+  display: block;
+  min-width: 2px;
+  min-height: 2px;
+  background: rgba(75, 38, 75, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 1px;
+}
+
 .block-waveform {
   min-height: 30px;
   display: flex;
@@ -455,10 +487,19 @@ main {
   position: relative;
 }
 
+.block-waveform::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px solid rgba(20, 92, 75, 0.3);
+  pointer-events: none;
+}
+
 .block-waveform i {
-  flex: 1 1 2px;
+  flex: 1 1 1px;
   min-width: 1px;
-  max-width: 3px;
   background: rgba(20, 92, 75, 0.72);
 }
 
