@@ -177,6 +177,7 @@ input:disabled {
   min-width: 0;
   min-height: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 48px 72px minmax(180px, 1fr) 42px;
   background: var(--raised);
 }
@@ -231,6 +232,88 @@ input:disabled {
 .view-mode-button[aria-pressed="true"] {
   background: var(--teal);
   color: white;
+}
+
+.spectral-controls {
+  height: 30px;
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
+}
+
+.spectral-controls.hidden {
+  display: none;
+}
+
+.spectral-scale-switch,
+.spectral-zoom-stepper {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.spectral-control-button,
+.spectral-icon-button,
+.spectral-note-grid-button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+}
+
+.spectral-control-button {
+  min-width: 48px;
+  padding: 3px 7px;
+  border-right: 1px solid var(--line);
+}
+
+.spectral-control-button:last-child {
+  border-right: 0;
+}
+
+.spectral-control-button[aria-pressed="true"],
+.spectral-note-grid-button[aria-pressed="true"] {
+  background: var(--teal);
+  color: white;
+}
+
+.spectral-icon-button {
+  width: 28px;
+  padding: 0;
+  font-size: 1rem;
+}
+
+.spectral-icon-button:first-child {
+  border-right: 1px solid var(--line);
+}
+
+.spectral-icon-button:last-child {
+  border-left: 1px solid var(--line);
+}
+
+.spectral-icon-button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+#spectralRangeValue {
+  width: 58px;
+  align-self: center;
+  text-align: center;
+  color: var(--ink);
+  font: 0.65rem "SFMono-Regular", Consolas, monospace;
+}
+
+.spectral-note-grid-button {
+  min-width: 50px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
 }
 
 .time-readout {
@@ -581,7 +664,14 @@ input:disabled {
     flex: 0 0 auto;
   }
 
+  .spectral-controls {
+    order: 3;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
   .time-readout {
+    order: 4;
     width: 100%;
     grid-template-columns: auto 88px;
   }

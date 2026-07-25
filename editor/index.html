@@ -86,6 +86,46 @@
                 disabled
               >Spectral</button>
             </div>
+            <div id="spectralControls" class="spectral-controls hidden">
+              <div class="spectral-scale-switch" role="group" aria-label="Frequency scale">
+                <button
+                  id="spectralLogBtn"
+                  class="spectral-control-button"
+                  type="button"
+                  aria-pressed="true"
+                >Log</button>
+                <button
+                  id="spectralLinearBtn"
+                  class="spectral-control-button"
+                  type="button"
+                  aria-pressed="false"
+                >Linear</button>
+              </div>
+              <div class="spectral-zoom-stepper" aria-label="Frequency zoom">
+                <button
+                  id="spectralZoomOutBtn"
+                  class="spectral-icon-button"
+                  type="button"
+                  title="Zoom out frequencies"
+                  aria-label="Zoom out frequencies"
+                >−</button>
+                <output id="spectralRangeValue">20 kHz</output>
+                <button
+                  id="spectralZoomInBtn"
+                  class="spectral-icon-button"
+                  type="button"
+                  title="Zoom in frequencies"
+                  aria-label="Zoom in frequencies"
+                >+</button>
+              </div>
+              <button
+                id="spectralNoteGridBtn"
+                class="spectral-note-grid-button"
+                type="button"
+                aria-pressed="false"
+                title="Show musical note grid"
+              >Notes</button>
+            </div>
             <div class="time-readout">
               <span>Cursor</span>
               <output id="cursorTime">00:00.000</output>

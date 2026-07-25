@@ -101,6 +101,31 @@ const ui = {
   chipDrumResetPadBtn: document.getElementById("chipDrumResetPadBtn"),
   closeChipDrumBtn: document.getElementById("closeChipDrumBtn"),
   chipDrumOscilloscopeCanvas: document.getElementById("chipDrumOscilloscopeCanvas"),
+  sampleMarkerOverlay: document.getElementById("sampleMarkerOverlay"),
+  sampleMarkerTitle: document.getElementById("sampleMarkerTitle"),
+  sampleMarkerMeta: document.getElementById("sampleMarkerMeta"),
+  sampleMarkerPreviewBtn: document.getElementById("sampleMarkerPreviewBtn"),
+  sampleMarkerResetBtn: document.getElementById("sampleMarkerResetBtn"),
+  closeSampleMarkerBtn: document.getElementById("closeSampleMarkerBtn"),
+  sampleMarkerSnapSelect: document.getElementById("sampleMarkerSnapSelect"),
+  sampleMarkerZoomOutBtn: document.getElementById("sampleMarkerZoomOutBtn"),
+  sampleMarkerZoomInBtn: document.getElementById("sampleMarkerZoomInBtn"),
+  sampleMarkerZoomValue: document.getElementById("sampleMarkerZoomValue"),
+  sampleMarkerAddBtn: document.getElementById("sampleMarkerAddBtn"),
+  sampleMarkerDeleteBtn: document.getElementById("sampleMarkerDeleteBtn"),
+  sampleMarkerWarpBtn: document.getElementById("sampleMarkerWarpBtn"),
+  sampleMarkerBarsSelect: document.getElementById("sampleMarkerBarsSelect"),
+  sampleMarkerSelection: document.getElementById("sampleMarkerSelection"),
+  sampleMarkerViewport: document.getElementById("sampleMarkerViewport"),
+  sampleMarkerCanvas: document.getElementById("sampleMarkerCanvas"),
+  sampleRangeCanvas: document.getElementById("sampleRangeCanvas"),
+  sampleRangeStartInput: document.getElementById("sampleRangeStartInput"),
+  sampleRangeEndInput: document.getElementById("sampleRangeEndInput"),
+  sampleLoopStartField: document.getElementById("sampleLoopStartField"),
+  sampleLoopEndField: document.getElementById("sampleLoopEndField"),
+  sampleLoopStartInput: document.getElementById("sampleLoopStartInput"),
+  sampleLoopEndInput: document.getElementById("sampleLoopEndInput"),
+  sampleMarkerStatus: document.getElementById("sampleMarkerStatus"),
 };
 
 const STORAGE_KEY = "chiptune_composer_autosave_v1";
@@ -157,6 +182,12 @@ let pendingSampleBlockId = null;
 let activeChipDrumTrackId = null;
 let activeChipDrumPadId = null;
 let chipDrumOscilloscopeFrame = null;
+let activeSampleMarkerTrackId = null;
+let activeSampleMarkerBlockId = null;
+let selectedWarpMarkerId = null;
+let sampleMarkerZoom = 96;
+let sampleMarkerPreview = false;
+let sampleMarkerAnimationFrame = null;
 let previewEnabled = false;
 let animationFrame = null;
 let playbackStopTimer = null;
@@ -870,6 +901,425 @@ function attachSampleWaveformHandlers(canvas, asset, block) {
   canvas.addEventListener("pointercancel", finishDrag);
 }
 
+const SAMPLE_MARKER_ZOOM_LEVELS = [48, 72, 96, 144, 216, 320];
+const clampValue = (value, min, max) => Math.min(Math.max(value, min), max);
+
+function getSampleMarkerContext() {
+  const track = project.tracks.find((item) => item.id === activeSampleMarkerTrackId);
+  if (!track || track.type !== "sample") return null;
+  const block = track.blocks.find((item) => item.id === activeSampleMarkerBlockId);
+  if (!block) return null;
+  const asset = project.assets?.find((item) => item.id === block.assetId);
+  if (!asset) return null;
+  const duration = Math.max(0.001, asset.duration || block.sourceEnd || 1);
+  normalizeSampleBoundaries(block, duration);
+  return { track, block, asset, duration, warp: ensureSampleWarp(block) };
+}
+
+function getWarpEditorAnchors(block, warp, duration) {
+  const region = getSampleActiveRegion(block, duration);
+  const totalBeats = Math.max(0.001, warp.bars * 4);
+  const markers = warp.markers
+    .filter((marker) =>
+      marker.sourceTime > region.start &&
+      marker.sourceTime < region.end &&
+      marker.beat > 0 &&
+      marker.beat < totalBeats,
+    )
+    .sort((a, b) => a.sourceTime - b.sourceTime);
+  const validMarkers = [];
+  markers.forEach((marker) => {
+    const previous = validMarkers[validMarkers.length - 1];
+    if (!previous || marker.beat > previous.beat) validMarkers.push(marker);
+  });
+  return {
+    region,
+    totalBeats,
+    markers: validMarkers,
+    anchors: [
+      { id: "range-start", sourceTime: region.start, beat: 0, implicit: true },
+      ...validMarkers,
+      { id: "range-end", sourceTime: region.end, beat: totalBeats, implicit: true },
+    ],
+  };
+}
+
+function interpolateWarpValue(anchors, value, inputKey, outputKey) {
+  const clamped = clampValue(value, anchors[0][inputKey], anchors[anchors.length - 1][inputKey]);
+  const nextIndex = anchors.findIndex((anchor) => anchor[inputKey] >= clamped);
+  if (nextIndex <= 0) return anchors[0][outputKey];
+  const before = anchors[nextIndex - 1];
+  const after = anchors[nextIndex];
+  const ratio =
+    (clamped - before[inputKey]) /
+    Math.max(0.000001, after[inputKey] - before[inputKey]);
+  return before[outputKey] + (after[outputKey] - before[outputKey]) * ratio;
+}
+
+function sourceTimeAtWarpBeat(anchors, beat) {
+  return interpolateWarpValue(anchors, beat, "beat", "sourceTime");
+}
+
+function warpBeatAtSourceTime(anchors, sourceTime) {
+  return interpolateWarpValue(anchors, sourceTime, "sourceTime", "beat");
+}
+
+function formatMarkerBeat(beat) {
+  const bar = Math.floor(beat / 4) + 1;
+  const beatInBar = Math.floor(beat % 4) + 1;
+  const sixteenth = Math.round(((beat % 1) / 0.25)) + 1;
+  return `${bar}.${beatInBar}.${sixteenth}`;
+}
+
+function getSelectedWarpMarker(context = getSampleMarkerContext()) {
+  return context?.warp.markers.find((marker) => marker.id === selectedWarpMarkerId) || null;
+}
+
+function syncSampleMarkerSelection() {
+  const context = getSampleMarkerContext();
+  const marker = getSelectedWarpMarker(context);
+  ui.sampleMarkerSelection.innerHTML = "";
+  ui.sampleMarkerDeleteBtn.disabled = !marker;
+  if (!context || !marker) {
+    const empty = document.createElement("span");
+    empty.textContent = "No marker selected";
+    ui.sampleMarkerSelection.appendChild(empty);
+    return;
+  }
+
+  const beatLabel = document.createElement("label");
+  beatLabel.textContent = "Beat";
+  const beatInput = document.createElement("input");
+  beatInput.type = "number";
+  beatInput.min = 0;
+  beatInput.max = context.warp.bars * 4;
+  beatInput.step = ui.sampleMarkerSnapSelect.value;
+  beatInput.value = marker.beat.toFixed(3);
+  beatInput.addEventListener("change", () => {
+    moveSelectedWarpMarkerToBeat(parseFloat(beatInput.value));
+  });
+  beatLabel.appendChild(beatInput);
+
+  const sourceLabel = document.createElement("label");
+  sourceLabel.textContent = "Source";
+  const sourceInput = document.createElement("input");
+  sourceInput.type = "number";
+  sourceInput.min = 0;
+  sourceInput.max = context.duration;
+  sourceInput.step = 0.001;
+  sourceInput.value = marker.sourceTime.toFixed(3);
+  sourceInput.addEventListener("change", () => {
+    moveSelectedWarpMarkerSource(parseFloat(sourceInput.value));
+  });
+  sourceLabel.appendChild(sourceInput);
+  ui.sampleMarkerSelection.append(beatLabel, sourceLabel);
+}
+
+function syncSampleRangeInputs() {
+  const context = getSampleMarkerContext();
+  if (!context) return;
+  const { block, duration } = context;
+  ui.sampleRangeStartInput.max = duration;
+  ui.sampleRangeEndInput.max = duration;
+  ui.sampleLoopStartInput.max = duration;
+  ui.sampleLoopEndInput.max = duration;
+  ui.sampleRangeStartInput.value = block.sourceStart.toFixed(3);
+  ui.sampleRangeEndInput.value = block.sourceEnd.toFixed(3);
+  ui.sampleLoopStartInput.value = block.loopStart.toFixed(3);
+  ui.sampleLoopEndInput.value = block.loopEnd.toFixed(3);
+  ui.sampleLoopStartField.hidden = block.mode !== "loop";
+  ui.sampleLoopEndField.hidden = block.mode !== "loop";
+}
+
+function updateSampleMarkerControls() {
+  const context = getSampleMarkerContext();
+  if (!context) return;
+  const zoomIndex = SAMPLE_MARKER_ZOOM_LEVELS.indexOf(sampleMarkerZoom);
+  ui.sampleMarkerZoomOutBtn.disabled = zoomIndex <= 0;
+  ui.sampleMarkerZoomInBtn.disabled = zoomIndex >= SAMPLE_MARKER_ZOOM_LEVELS.length - 1;
+  ui.sampleMarkerZoomValue.textContent = `${Math.round((sampleMarkerZoom / 96) * 100)}%`;
+  ui.sampleMarkerWarpBtn.setAttribute("aria-pressed", context.warp.enabled ? "true" : "false");
+  ui.sampleMarkerBarsSelect.value = String(context.warp.bars);
+  ui.sampleMarkerStatus.textContent =
+    `${context.warp.markers.length} marker${context.warp.markers.length === 1 ? "" : "s"} · ` +
+    `${context.warp.bars * 4} beats`;
+  syncSampleMarkerSelection();
+  syncSampleRangeInputs();
+}
+
+function drawWarpMarkerCanvas() {
+  const context = getSampleMarkerContext();
+  if (!context) return;
+  const { block, asset, warp, duration } = context;
+  const { anchors, markers, totalBeats } = getWarpEditorAnchors(block, warp, duration);
+  const viewportWidth = Math.max(320, ui.sampleMarkerViewport.clientWidth);
+  const width = Math.max(viewportWidth, Math.ceil(totalBeats * sampleMarkerZoom));
+  const height = Math.max(330, ui.sampleMarkerViewport.clientHeight);
+  const canvas = ui.sampleMarkerCanvas;
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  const drawing = canvas.getContext("2d");
+  const rulerHeight = 32;
+  const center = rulerHeight + (height - rulerHeight) / 2;
+  const amplitudeHeight = (height - rulerHeight) * 0.43;
+
+  drawing.fillStyle = "#172027";
+  drawing.fillRect(0, 0, width, height);
+  drawing.fillStyle = "#202c34";
+  drawing.fillRect(0, 0, width, rulerHeight);
+
+  const gridStep = parseFloat(ui.sampleMarkerSnapSelect.value) || 0.25;
+  for (let beat = 0; beat <= totalBeats + 0.0001; beat += gridStep) {
+    const x = (beat / totalBeats) * width;
+    const isBar = Math.abs(beat % 4) < 0.0001;
+    const isBeat = Math.abs(beat % 1) < 0.0001;
+    drawing.strokeStyle = isBar
+      ? "rgba(238, 242, 244, 0.46)"
+      : isBeat
+        ? "rgba(238, 242, 244, 0.24)"
+        : "rgba(238, 242, 244, 0.09)";
+    drawing.lineWidth = isBar ? 1.5 : 1;
+    drawing.beginPath();
+    drawing.moveTo(x, 0);
+    drawing.lineTo(x, height);
+    drawing.stroke();
+    if (isBeat) {
+      drawing.fillStyle = "rgba(238, 242, 244, 0.78)";
+      drawing.font = '11px "JetBrains Mono", monospace';
+      drawing.fillText(formatMarkerBeat(beat), x + 5, 20);
+    }
+  }
+
+  const peaks = asset.peaks || [];
+  drawing.strokeStyle = "#58c7c2";
+  drawing.lineWidth = 1.2;
+  drawing.beginPath();
+  for (let x = 0; x < width; x += 1) {
+    const beat = (x / width) * totalBeats;
+    const sourceTime = sourceTimeAtWarpBeat(anchors, beat);
+    const peakIndex = Math.round(
+      clampValue(sourceTime / duration, 0, 1) * Math.max(0, peaks.length - 1),
+    );
+    const amplitude = (peaks[peakIndex] || 0) * amplitudeHeight;
+    drawing.moveTo(x, center - amplitude);
+    drawing.lineTo(x, center + amplitude);
+  }
+  drawing.stroke();
+
+  const drawMarker = (marker, implicit = false) => {
+    const x = (marker.beat / totalBeats) * width;
+    const selected = marker.id === selectedWarpMarkerId;
+    drawing.strokeStyle = implicit ? "#dbe8e7" : selected ? "#ff7668" : "#f4b849";
+    drawing.lineWidth = selected ? 2.5 : 1.5;
+    drawing.beginPath();
+    drawing.moveTo(x, rulerHeight);
+    drawing.lineTo(x, height);
+    drawing.stroke();
+    drawing.fillStyle = drawing.strokeStyle;
+    drawing.beginPath();
+    drawing.moveTo(x - 7, rulerHeight);
+    drawing.lineTo(x + 7, rulerHeight);
+    drawing.lineTo(x, rulerHeight + 9);
+    drawing.closePath();
+    drawing.fill();
+    drawing.fillStyle = implicit ? "#dbe8e7" : selected ? "#ffb0a3" : "#f4b849";
+    drawing.font = '10px "JetBrains Mono", monospace';
+    const label = implicit
+      ? marker.id === "range-start" ? "START" : "END"
+      : `${formatMarkerBeat(marker.beat)} · ${marker.sourceTime.toFixed(3)}s`;
+    drawing.fillText(label, clampValue(x + 6, 4, width - 130), rulerHeight + 16);
+  };
+  drawMarker(anchors[0], true);
+  markers.forEach((marker) => drawMarker(marker));
+  drawMarker(anchors[anchors.length - 1], true);
+
+  if (sampleMarkerPreview) {
+    const previewBeat = audioEngine.getPreviewBeat(project.bpm) % totalBeats;
+    const x = (previewBeat / totalBeats) * width;
+    drawing.strokeStyle = "#ff6973";
+    drawing.lineWidth = 2;
+    drawing.beginPath();
+    drawing.moveTo(x, 0);
+    drawing.lineTo(x, height);
+    drawing.stroke();
+  }
+}
+
+function drawSampleRangeCanvas() {
+  const context = getSampleMarkerContext();
+  if (!context) return;
+  const { block, asset, duration } = context;
+  const canvas = ui.sampleRangeCanvas;
+  const width = Math.max(320, Math.floor(canvas.clientWidth || 900));
+  const height = 96;
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const drawing = canvas.getContext("2d");
+  drawing.fillStyle = "#172027";
+  drawing.fillRect(0, 0, width, height);
+  drawing.strokeStyle = "#58c7c2";
+  drawing.beginPath();
+  const peaks = asset.peaks || [];
+  peaks.forEach((peak, index) => {
+    const x = (index / Math.max(1, peaks.length - 1)) * width;
+    const amplitude = peak * height * 0.4;
+    drawing.moveTo(x, height / 2 - amplitude);
+    drawing.lineTo(x, height / 2 + amplitude);
+  });
+  drawing.stroke();
+
+  const startX = (block.sourceStart / duration) * width;
+  const endX = (block.sourceEnd / duration) * width;
+  drawing.fillStyle = "rgba(8, 12, 15, 0.66)";
+  drawing.fillRect(0, 0, startX, height);
+  drawing.fillRect(endX, 0, width - endX, height);
+  if (block.mode === "loop") {
+    const loopStartX = (block.loopStart / duration) * width;
+    const loopEndX = (block.loopEnd / duration) * width;
+    drawing.fillStyle = "rgba(244, 184, 73, 0.18)";
+    drawing.fillRect(loopStartX, 0, loopEndX - loopStartX, height);
+    drawing.strokeStyle = "#f4b849";
+    drawing.strokeRect(loopStartX, 1, loopEndX - loopStartX, height - 2);
+  }
+
+  const boundary = (time, color, bottom = false) => {
+    const x = (time / duration) * width;
+    drawing.strokeStyle = color;
+    drawing.lineWidth = 2;
+    drawing.beginPath();
+    drawing.moveTo(x, 0);
+    drawing.lineTo(x, height);
+    drawing.stroke();
+    drawing.fillStyle = color;
+    drawing.beginPath();
+    drawing.moveTo(x - 6, bottom ? height : 0);
+    drawing.lineTo(x + 6, bottom ? height : 0);
+    drawing.lineTo(x, bottom ? height - 9 : 9);
+    drawing.closePath();
+    drawing.fill();
+  };
+  boundary(block.sourceStart, "#dbe8e7");
+  boundary(block.sourceEnd, "#dbe8e7");
+  if (block.mode === "loop") {
+    boundary(block.loopStart, "#f4b849", true);
+    boundary(block.loopEnd, "#f4b849", true);
+  }
+}
+
+function renderSampleMarkerEditor() {
+  updateSampleMarkerControls();
+  drawWarpMarkerCanvas();
+  drawSampleRangeCanvas();
+}
+
+function addWarpMarkerAtBeat(beat) {
+  const context = getSampleMarkerContext();
+  if (!context) return;
+  const { anchors, totalBeats } = getWarpEditorAnchors(
+    context.block,
+    context.warp,
+    context.duration,
+  );
+  const snapStep = parseFloat(ui.sampleMarkerSnapSelect.value) || 0.25;
+  const snappedBeat = clampValue(Math.round(beat / snapStep) * snapStep, snapStep, totalBeats - snapStep);
+  const sourceTime = sourceTimeAtWarpBeat(anchors, snappedBeat);
+  const duplicate = context.warp.markers.some(
+    (marker) => Math.abs(marker.sourceTime - sourceTime) < 0.002,
+  );
+  if (duplicate || totalBeats <= snapStep) return;
+  const marker = { id: createRuntimeId(), sourceTime, beat: snappedBeat };
+  context.warp.markers.push(marker);
+  context.warp.markers.sort((a, b) => a.sourceTime - b.sourceTime);
+  context.warp.enabled = true;
+  context.warp.mode = "beats";
+  selectedWarpMarkerId = marker.id;
+  commitChange({ reRenderEditors: false });
+  renderSampleMarkerEditor();
+}
+
+function moveSelectedWarpMarkerToBeat(value, commit = true) {
+  const context = getSampleMarkerContext();
+  const marker = getSelectedWarpMarker(context);
+  if (!context || !marker || !Number.isFinite(value)) return;
+  const markers = context.warp.markers.slice().sort((a, b) => a.sourceTime - b.sourceTime);
+  const index = markers.findIndex((item) => item.id === marker.id);
+  const totalBeats = context.warp.bars * 4;
+  const snapStep = parseFloat(ui.sampleMarkerSnapSelect.value) || 0.25;
+  const minimum = index > 0 ? markers[index - 1].beat + snapStep : snapStep;
+  const maximum = index < markers.length - 1
+    ? markers[index + 1].beat - snapStep
+    : totalBeats - snapStep;
+  marker.beat = clampValue(Math.round(value / snapStep) * snapStep, minimum, maximum);
+  context.warp.enabled = true;
+  context.warp.mode = "beats";
+  if (commit) commitChange({ reRenderEditors: false });
+  renderSampleMarkerEditor();
+}
+
+function moveSelectedWarpMarkerSource(value) {
+  const context = getSampleMarkerContext();
+  const marker = getSelectedWarpMarker(context);
+  if (!context || !marker || !Number.isFinite(value)) return;
+  const markers = context.warp.markers.slice().sort((a, b) => a.sourceTime - b.sourceTime);
+  const index = markers.findIndex((item) => item.id === marker.id);
+  const region = getSampleActiveRegion(context.block, context.duration);
+  const minimum = index > 0 ? markers[index - 1].sourceTime + 0.001 : region.start + 0.001;
+  const maximum = index < markers.length - 1
+    ? markers[index + 1].sourceTime - 0.001
+    : region.end - 0.001;
+  marker.sourceTime = clampValue(value, minimum, maximum);
+  context.warp.markers.sort((a, b) => a.sourceTime - b.sourceTime);
+  commitChange({ reRenderEditors: false });
+  renderSampleMarkerEditor();
+}
+
+function deleteSelectedWarpMarker() {
+  const context = getSampleMarkerContext();
+  if (!context || !selectedWarpMarkerId) return;
+  context.warp.markers = context.warp.markers.filter(
+    (marker) => marker.id !== selectedWarpMarkerId,
+  );
+  selectedWarpMarkerId = null;
+  commitChange({ reRenderEditors: false });
+  renderSampleMarkerEditor();
+}
+
+async function openSampleMarkerEditor(track, block) {
+  if (!track || !block?.assetId) return;
+  await ensureProjectAssetsLoaded();
+  activeSampleMarkerTrackId = track.id;
+  activeSampleMarkerBlockId = block.id;
+  selectedWarpMarkerId = null;
+  sampleMarkerPreview = false;
+  ui.sampleMarkerPreviewBtn.setAttribute("aria-pressed", "false");
+  const asset = project.assets?.find((item) => item.id === block.assetId);
+  ui.sampleMarkerTitle.textContent = asset?.name || "Warp Markers";
+  ui.sampleMarkerMeta.textContent = `${getTrackLabel(track)} · ${asset?.duration?.toFixed(3) || "0.000"} s`;
+  ui.sampleMarkerOverlay.classList.remove("hidden");
+  audioEngine.unlock();
+  window.requestAnimationFrame(renderSampleMarkerEditor);
+}
+
+function stopSampleMarkerPreview() {
+  sampleMarkerPreview = false;
+  ui.sampleMarkerPreviewBtn.setAttribute("aria-pressed", "false");
+  audioEngine.stopPreview();
+  if (sampleMarkerAnimationFrame) {
+    window.cancelAnimationFrame(sampleMarkerAnimationFrame);
+    sampleMarkerAnimationFrame = null;
+  }
+}
+
+function closeSampleMarkerEditor() {
+  stopSampleMarkerPreview();
+  activeSampleMarkerTrackId = null;
+  activeSampleMarkerBlockId = null;
+  selectedWarpMarkerId = null;
+  ui.sampleMarkerOverlay.classList.add("hidden");
+}
+
 function renderSampleDevice(track) {
   ui.addDeviceBtn.disabled = false;
   ui.addDeviceBtn.title = "Import sample";
@@ -916,7 +1366,12 @@ function renderSampleDevice(track) {
       await ensureProjectAssetsLoaded();
       audioEngine.previewBlock(track, block, project.bpm, { loop: false });
     });
-    actions.append(replaceButton, previewButton);
+    const editMarkersButton = document.createElement("button");
+    editMarkersButton.type = "button";
+    editMarkersButton.className = "btn tiny";
+    editMarkersButton.textContent = "Edit Markers";
+    editMarkersButton.addEventListener("click", () => openSampleMarkerEditor(track, block));
+    actions.append(replaceButton, previewButton, editMarkersButton);
   }
 
   head.append(heading, actions);
@@ -1906,6 +2361,13 @@ function applyState(nextState) {
       closeChipDrumEditor();
     }
   }
+  if (activeSampleMarkerBlockId) {
+    if (getSampleMarkerContext()) {
+      renderSampleMarkerEditor();
+    } else {
+      closeSampleMarkerEditor();
+    }
+  }
   if (isPlaying) {
     restartPlayback();
   }
@@ -2400,8 +2862,232 @@ ui.previewBtn.addEventListener("click", () => {
   }
 });
 
+ui.sampleMarkerCanvas.addEventListener("dblclick", (event) => {
+  const context = getSampleMarkerContext();
+  if (!context) return;
+  const rect = ui.sampleMarkerCanvas.getBoundingClientRect();
+  const x = (event.clientX - rect.left) * (ui.sampleMarkerCanvas.width / rect.width);
+  addWarpMarkerAtBeat((x / ui.sampleMarkerCanvas.width) * context.warp.bars * 4);
+});
+
+{
+  let draggedMarkerId = null;
+  let pointerId = null;
+  const eventBeat = (event) => {
+    const context = getSampleMarkerContext();
+    if (!context) return 0;
+    const rect = ui.sampleMarkerCanvas.getBoundingClientRect();
+    const x = (event.clientX - rect.left) * (ui.sampleMarkerCanvas.width / rect.width);
+    return clampValue(x / ui.sampleMarkerCanvas.width, 0, 1) * context.warp.bars * 4;
+  };
+  ui.sampleMarkerCanvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const context = getSampleMarkerContext();
+    if (!context) return;
+    const rect = ui.sampleMarkerCanvas.getBoundingClientRect();
+    const x = (event.clientX - rect.left) * (ui.sampleMarkerCanvas.width / rect.width);
+    const totalBeats = context.warp.bars * 4;
+    const nearest = context.warp.markers
+      .map((marker) => ({
+        marker,
+        distance: Math.abs((marker.beat / totalBeats) * ui.sampleMarkerCanvas.width - x),
+      }))
+      .sort((a, b) => a.distance - b.distance)[0];
+    if (!nearest || nearest.distance > 12) {
+      selectedWarpMarkerId = null;
+      renderSampleMarkerEditor();
+      return;
+    }
+    event.preventDefault();
+    draggedMarkerId = nearest.marker.id;
+    selectedWarpMarkerId = nearest.marker.id;
+    pointerId = event.pointerId;
+    ui.sampleMarkerCanvas.setPointerCapture(pointerId);
+    renderSampleMarkerEditor();
+  });
+  ui.sampleMarkerCanvas.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== pointerId || !draggedMarkerId) return;
+    selectedWarpMarkerId = draggedMarkerId;
+    moveSelectedWarpMarkerToBeat(eventBeat(event), false);
+  });
+  const finishMarkerDrag = (event) => {
+    if (event.pointerId !== pointerId || !draggedMarkerId) return;
+    draggedMarkerId = null;
+    pointerId = null;
+    commitChange({ reRenderEditors: false });
+    renderSampleMarkerEditor();
+  };
+  ui.sampleMarkerCanvas.addEventListener("pointerup", finishMarkerDrag);
+  ui.sampleMarkerCanvas.addEventListener("pointercancel", finishMarkerDrag);
+}
+
+{
+  let rangeMarker = null;
+  let pointerId = null;
+  const eventSourceTime = (event) => {
+    const context = getSampleMarkerContext();
+    if (!context) return 0;
+    const rect = ui.sampleRangeCanvas.getBoundingClientRect();
+    return clampValue((event.clientX - rect.left) / rect.width, 0, 1) * context.duration;
+  };
+  const updateRangeMarker = (time) => {
+    const context = getSampleMarkerContext();
+    if (!context || !rangeMarker) return;
+    const { block, duration } = context;
+    if (rangeMarker === "sourceStart") {
+      block.sourceStart = Math.min(block.sourceEnd - 0.001, Math.max(0, time));
+    } else if (rangeMarker === "sourceEnd") {
+      block.sourceEnd = Math.max(block.sourceStart + 0.001, Math.min(duration, time));
+    } else if (rangeMarker === "loopStart") {
+      block.loopStart = Math.min(block.loopEnd - 0.001, Math.max(block.sourceStart, time));
+    } else if (rangeMarker === "loopEnd") {
+      block.loopEnd = Math.max(block.loopStart + 0.001, Math.min(block.sourceEnd, time));
+    }
+    normalizeSampleBoundaries(block, duration);
+    renderSampleMarkerEditor();
+  };
+  ui.sampleRangeCanvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const context = getSampleMarkerContext();
+    if (!context) return;
+    event.preventDefault();
+    const rect = ui.sampleRangeCanvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const bottomLane = event.clientY - rect.top > rect.height / 2;
+    const candidates = bottomLane && context.block.mode === "loop"
+      ? [
+          { type: "loopStart", time: context.block.loopStart },
+          { type: "loopEnd", time: context.block.loopEnd },
+        ]
+      : [
+          { type: "sourceStart", time: context.block.sourceStart },
+          { type: "sourceEnd", time: context.block.sourceEnd },
+        ];
+    const nearest = candidates
+      .map((marker) => ({
+        ...marker,
+        distance: Math.abs((marker.time / context.duration) * rect.width - x),
+      }))
+      .sort((a, b) => a.distance - b.distance)[0];
+    if (!nearest || nearest.distance > 24) return;
+    rangeMarker = nearest.type;
+    pointerId = event.pointerId;
+    ui.sampleRangeCanvas.setPointerCapture(pointerId);
+    updateRangeMarker(eventSourceTime(event));
+  });
+  ui.sampleRangeCanvas.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== pointerId || !rangeMarker) return;
+    updateRangeMarker(eventSourceTime(event));
+  });
+  const finishRangeDrag = (event) => {
+    if (event.pointerId !== pointerId || !rangeMarker) return;
+    rangeMarker = null;
+    pointerId = null;
+    commitChange({ reRenderEditors: false });
+    renderSampleMarkerEditor();
+  };
+  ui.sampleRangeCanvas.addEventListener("pointerup", finishRangeDrag);
+  ui.sampleRangeCanvas.addEventListener("pointercancel", finishRangeDrag);
+}
+
+ui.sampleMarkerSnapSelect.addEventListener("change", renderSampleMarkerEditor);
+ui.sampleMarkerZoomOutBtn.addEventListener("click", () => {
+  const index = SAMPLE_MARKER_ZOOM_LEVELS.indexOf(sampleMarkerZoom);
+  sampleMarkerZoom = SAMPLE_MARKER_ZOOM_LEVELS[Math.max(0, index - 1)];
+  renderSampleMarkerEditor();
+});
+ui.sampleMarkerZoomInBtn.addEventListener("click", () => {
+  const index = SAMPLE_MARKER_ZOOM_LEVELS.indexOf(sampleMarkerZoom);
+  sampleMarkerZoom =
+    SAMPLE_MARKER_ZOOM_LEVELS[Math.min(SAMPLE_MARKER_ZOOM_LEVELS.length - 1, index + 1)];
+  renderSampleMarkerEditor();
+});
+ui.sampleMarkerAddBtn.addEventListener("click", () => {
+  const context = getSampleMarkerContext();
+  if (!context) return;
+  const canvas = ui.sampleMarkerCanvas;
+  const centerX = ui.sampleMarkerViewport.scrollLeft + ui.sampleMarkerViewport.clientWidth / 2;
+  addWarpMarkerAtBeat((centerX / canvas.width) * context.warp.bars * 4);
+});
+ui.sampleMarkerDeleteBtn.addEventListener("click", deleteSelectedWarpMarker);
+ui.sampleMarkerResetBtn.addEventListener("click", () => {
+  const context = getSampleMarkerContext();
+  if (!context) return;
+  context.warp.markers = [];
+  selectedWarpMarkerId = null;
+  commitChange({ reRenderEditors: false });
+  renderSampleMarkerEditor();
+});
+ui.sampleMarkerWarpBtn.addEventListener("click", () => {
+  const context = getSampleMarkerContext();
+  if (!context) return;
+  context.warp.enabled = !context.warp.enabled;
+  if (context.warp.enabled) context.warp.mode = "beats";
+  commitChange({ reRenderEditors: false });
+  renderSampleMarkerEditor();
+});
+ui.sampleMarkerBarsSelect.addEventListener("change", () => {
+  const context = getSampleMarkerContext();
+  const bars = parseFloat(ui.sampleMarkerBarsSelect.value);
+  if (!context || !Number.isFinite(bars)) return;
+  context.warp.bars = bars;
+  context.block.length = bars * 4;
+  const regionDuration = getSampleRegionDuration(context.block, context.duration);
+  context.warp.sourceBpm = Math.min(
+    400,
+    Math.max(20, (bars * 4 * 60) / regionDuration),
+  );
+  context.warp.markers = context.warp.markers.filter((marker) => marker.beat < bars * 4);
+  if (!context.warp.markers.some((marker) => marker.id === selectedWarpMarkerId)) {
+    selectedWarpMarkerId = null;
+  }
+  commitChange({ reRenderEditors: false });
+  renderSampleMarkerEditor();
+});
+ui.sampleMarkerPreviewBtn.addEventListener("click", () => {
+  const context = getSampleMarkerContext();
+  if (!context) return;
+  sampleMarkerPreview = !sampleMarkerPreview;
+  ui.sampleMarkerPreviewBtn.setAttribute("aria-pressed", sampleMarkerPreview ? "true" : "false");
+  if (!sampleMarkerPreview) {
+    stopSampleMarkerPreview();
+    drawWarpMarkerCanvas();
+    return;
+  }
+  const previewBlock = {
+    ...context.block,
+    warp: { ...context.warp, enabled: true, mode: "beats" },
+  };
+  audioEngine.previewBlock(context.track, previewBlock, project.bpm, { loop: true });
+  const animate = () => {
+    if (!sampleMarkerPreview) return;
+    drawWarpMarkerCanvas();
+    sampleMarkerAnimationFrame = window.requestAnimationFrame(animate);
+  };
+  sampleMarkerAnimationFrame = window.requestAnimationFrame(animate);
+  updateSampleMarkerControls();
+});
+
+[
+  [ui.sampleRangeStartInput, "sourceStart"],
+  [ui.sampleRangeEndInput, "sourceEnd"],
+  [ui.sampleLoopStartInput, "loopStart"],
+  [ui.sampleLoopEndInput, "loopEnd"],
+].forEach(([input, key]) => {
+  input.addEventListener("change", () => {
+    const context = getSampleMarkerContext();
+    const value = parseFloat(input.value);
+    if (!context || !Number.isFinite(value)) return;
+    context.block[key] = value;
+    normalizeSampleBoundaries(context.block, context.duration);
+    commitChange({ reRenderEditors: false });
+    renderSampleMarkerEditor();
+  });
+});
+
 ui.closeEditorBtn.addEventListener("click", closeEditor);
 ui.closeChipDrumBtn.addEventListener("click", closeChipDrumEditor);
+ui.closeSampleMarkerBtn.addEventListener("click", closeSampleMarkerEditor);
 ui.chipDrumPreviewBtn.addEventListener("click", () => {
   const track = getActiveChipDrumTrack();
   const pad = getActiveChipDrumPad();
@@ -2434,6 +3120,11 @@ ui.chipDrumOverlay.addEventListener("pointerdown", (event) => {
   }
 });
 
+ui.sampleMarkerOverlay.addEventListener("pointerdown", (event) => {
+  audioEngine.unlock();
+  if (event.target === ui.sampleMarkerOverlay) closeSampleMarkerEditor();
+});
+
 ui.confirmOverlay.addEventListener("pointerdown", (event) => {
   if (event.target === ui.confirmOverlay) {
     closeConfirm();
@@ -2446,6 +3137,10 @@ ui.editorOverlay.addEventListener("pointerdown", () => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !ui.sampleMarkerOverlay.classList.contains("hidden")) {
+    closeSampleMarkerEditor();
+    return;
+  }
   if (event.key === "Escape" && !ui.chipDrumOverlay.classList.contains("hidden")) {
     closeChipDrumEditor();
     return;
@@ -2465,7 +3160,14 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("beforeunload", () => {
   saveProjectToCache();
   stopChipDrumOscilloscope();
+  stopSampleMarkerPreview();
   audioEngine.stop();
+});
+
+window.addEventListener("resize", () => {
+  if (!ui.sampleMarkerOverlay.classList.contains("hidden")) {
+    renderSampleMarkerEditor();
+  }
 });
 
 if (project.tracks[0].blocks.length === 0) {

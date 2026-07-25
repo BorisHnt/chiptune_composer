@@ -868,6 +868,9 @@ function scheduleWarpedBeatGrains(
     pitchRate,
     loop,
     sourceOffset,
+    markers,
+    totalBeats,
+    secondsPerBeat,
   },
 ) {
   const sourceDuration = Math.max(0.001, sourceEnd - sourceStart);
@@ -880,13 +883,64 @@ function scheduleWarpedBeatGrains(
     grainDuration = clamp(hopDuration * 2, 0.045, 0.3);
   }
   const grainLevel = 0.9;
+  const anchors = [
+    { sourceTime: sourceStart, beat: 0 },
+    ...(Array.isArray(markers) ? markers : [])
+      .filter((marker) =>
+        Number.isFinite(marker.sourceTime) &&
+        Number.isFinite(marker.beat) &&
+        marker.sourceTime > sourceStart &&
+        marker.sourceTime < sourceEnd &&
+        marker.beat > 0 &&
+        marker.beat < totalBeats,
+      )
+      .sort((a, b) => a.beat - b.beat),
+    { sourceTime: sourceEnd, beat: totalBeats },
+  ].filter((marker, index, list) =>
+    index === 0 ||
+    (marker.beat > list[index - 1].beat && marker.sourceTime > list[index - 1].sourceTime),
+  );
+
+  const sourceTimeAtBeat = (beat) => {
+    const clampedBeat = clamp(beat, 0, totalBeats);
+    const nextIndex = anchors.findIndex((anchor) => anchor.beat >= clampedBeat);
+    if (nextIndex <= 0) return anchors[0].sourceTime;
+    const before = anchors[nextIndex - 1];
+    const after = anchors[nextIndex];
+    const ratio = (clampedBeat - before.beat) / Math.max(0.000001, after.beat - before.beat);
+    return before.sourceTime + (after.sourceTime - before.sourceTime) * ratio;
+  };
+
+  const beatAtSourceTime = (sourceTime) => {
+    const clampedTime = clamp(sourceTime, sourceStart, sourceEnd);
+    const nextIndex = anchors.findIndex((anchor) => anchor.sourceTime >= clampedTime);
+    if (nextIndex <= 0) return anchors[0].beat;
+    const before = anchors[nextIndex - 1];
+    const after = anchors[nextIndex];
+    const ratio =
+      (clampedTime - before.sourceTime) /
+      Math.max(0.000001, after.sourceTime - before.sourceTime);
+    return before.beat + (after.beat - before.beat) * ratio;
+  };
+  const markerWarpEnabled = anchors.length > 2;
+  const startBeat = markerWarpEnabled
+    ? beatAtSourceTime(sourceStart + sourceOffset)
+    : 0;
 
   for (let elapsed = 0; elapsed < outputDuration; elapsed += hopDuration) {
-    const sourceElapsed = sourceOffset + elapsed * warpRate;
-    if (!loop && sourceElapsed >= sourceDuration) break;
-
-    const offset =
-      sourceStart + (loop ? sourceElapsed % sourceDuration : Math.min(sourceElapsed, sourceDuration));
+    let offset;
+    if (markerWarpEnabled) {
+      let warpedBeat = startBeat + elapsed / Math.max(0.000001, secondsPerBeat);
+      if (!loop && warpedBeat >= totalBeats) break;
+      if (loop) warpedBeat %= totalBeats;
+      offset = sourceTimeAtBeat(warpedBeat);
+    } else {
+      const sourceElapsed = sourceOffset + elapsed * warpRate;
+      if (!loop && sourceElapsed >= sourceDuration) break;
+      offset =
+        sourceStart +
+        (loop ? sourceElapsed % sourceDuration : Math.min(sourceElapsed, sourceDuration));
+    }
     const when = eventStart + elapsed;
     const grainEnd = Math.min(stopTime, when + grainDuration);
     const audibleDuration = grainEnd - when;
@@ -940,6 +994,7 @@ function scheduleSampleBlock(context, trackChain, block, secondsPerBeat, startOf
   );
   const projectBpm = 60 / secondsPerBeat;
   const warpRate = warpEnabled ? projectBpm / sourceBpm : 1;
+  const warpTotalBeats = Math.max(0.001, (block.warp?.bars || block.length / 4) * 4);
   const isLoop = block.mode === "loop";
 
   let loopStart = sourceStart;
@@ -967,14 +1022,27 @@ function scheduleSampleBlock(context, trackChain, block, secondsPerBeat, startOf
     ? rawOffset % activeDuration
     : clamp(rawOffset, 0, Math.max(0, activeDuration - 0.001));
   const remainingDuration = isLoop ? activeDuration : Math.max(0.001, activeDuration - sourceOffset);
+  const hasWarpMarkers = Array.isArray(block.warp?.markers) && block.warp.markers.length > 0;
   const naturalDuration =
-    warpEnabled && block.warp?.mode === "beats"
+    warpEnabled && block.warp?.mode === "beats" && hasWarpMarkers
+      ? clipDuration
+      : warpEnabled && block.warp?.mode === "beats"
       ? remainingDuration / warpRate
       : remainingDuration / (warpRate * pitchRate);
   const stopTime = isLoop ? eventEnd : Math.min(eventEnd, eventStart + naturalDuration);
   const blockGain = createSampleBlockGain(context, trackChain, block, eventStart, stopTime);
 
   if (warpEnabled && block.warp?.mode === "beats") {
+    const warpMarkers = (Array.isArray(block.warp?.markers) ? block.warp.markers : []).map(
+      (marker) =>
+        block.reverse
+          ? {
+              ...marker,
+              sourceTime: bufferDuration - marker.sourceTime,
+              beat: warpTotalBeats - marker.beat,
+            }
+          : marker,
+    );
     scheduleWarpedBeatGrains(context, blockGain, buffer, {
       sourceStart: activeStart,
       sourceEnd: activeEnd,
@@ -984,6 +1052,9 @@ function scheduleSampleBlock(context, trackChain, block, secondsPerBeat, startOf
       pitchRate,
       loop: isLoop,
       sourceOffset,
+      markers: warpMarkers,
+      totalBeats: warpTotalBeats,
+      secondsPerBeat,
     });
     return;
   }

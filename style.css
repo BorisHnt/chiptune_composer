@@ -757,6 +757,259 @@ main {
   font-size: 0.72rem;
 }
 
+.overlay.sample-marker-overlay {
+  height: 100vh;
+  padding: var(--space-sm);
+  z-index: 12;
+}
+
+.overlay-panel.sample-marker-window {
+  height: calc(100vh - 20px);
+  background: #f5f6f7;
+  overflow: hidden;
+}
+
+.sample-marker-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sample-marker-heading span {
+  color: rgba(70, 66, 94, 0.68);
+  font-size: 0.72rem;
+}
+
+.sample-marker-toolbar {
+  min-height: 46px;
+  padding: var(--space-xs) var(--space-md);
+  border-bottom: var(--border-soft);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  overflow-x: auto;
+}
+
+.sample-marker-toolbar label,
+.sample-range-values label {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  white-space: nowrap;
+  font: 0.68rem "JetBrains Mono", monospace;
+}
+
+.sample-marker-toolbar label,
+.sample-marker-toolbar .btn {
+  flex: 0 0 auto;
+}
+
+.sample-marker-toolbar .btn {
+  white-space: nowrap;
+}
+
+.sample-marker-toolbar select,
+.sample-range-values input {
+  height: 28px;
+  min-width: 64px;
+  border: var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.82);
+  color: inherit;
+  font: inherit;
+  padding: 2px 5px;
+}
+
+.sample-marker-stepper {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  border: var(--border-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.sample-marker-stepper .btn {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+#sampleMarkerZoomValue {
+  width: 50px;
+  text-align: center;
+  font: 0.68rem "JetBrains Mono", monospace;
+}
+
+.sample-marker-selection {
+  min-width: 190px;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font: 0.68rem "JetBrains Mono", monospace;
+  white-space: nowrap;
+}
+
+.sample-marker-selection label {
+  height: 30px;
+}
+
+.sample-marker-selection input {
+  width: 72px;
+  height: 28px;
+  border: var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.82);
+  color: inherit;
+  font: inherit;
+  padding: 2px 5px;
+}
+
+.sample-marker-body {
+  min-height: 0;
+  flex: 1;
+  padding: var(--space-sm);
+  display: grid;
+  grid-template-rows: minmax(260px, 1fr) 132px 24px;
+  gap: var(--space-sm);
+}
+
+.sample-marker-viewport {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border: var(--border-thin);
+  background: #172027;
+}
+
+#sampleMarkerCanvas {
+  height: 100%;
+  min-height: 330px;
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.sample-range-section {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 34px 96px;
+}
+
+.sample-range-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.sample-range-values {
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  overflow-x: auto;
+}
+
+.sample-range-values input {
+  width: 76px;
+}
+
+.sample-range-values label[hidden] {
+  display: none;
+}
+
+#sampleRangeCanvas {
+  width: 100%;
+  height: 96px;
+  display: block;
+  border: var(--border-thin);
+  background: #172027;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.sample-marker-status {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  color: rgba(70, 66, 94, 0.72);
+  font: 0.68rem "JetBrains Mono", monospace;
+}
+
+.sample-marker-status span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sample-marker-status output {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 760px) {
+  .overlay.sample-marker-overlay {
+    padding: var(--space-xs);
+  }
+
+  .overlay-panel.sample-marker-window {
+    height: calc(100vh - 12px);
+  }
+
+  .sample-marker-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+  }
+
+  .sample-marker-header .overlay-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .sample-marker-toolbar {
+    padding-inline: var(--space-xs);
+  }
+
+  .sample-marker-selection {
+    margin-left: 0;
+  }
+
+  .sample-marker-body {
+    grid-template-rows: minmax(230px, 1fr) 158px 20px;
+    padding: var(--space-xs);
+  }
+
+  .sample-range-section {
+    grid-template-rows: 60px 96px;
+  }
+
+  .sample-range-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .sample-range-values {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .sample-marker-status span {
+    display: none;
+  }
+}
+
 .adsr-panel {
   padding: var(--space-sm);
   display: grid;

@@ -169,6 +169,79 @@
       </div>
     </div>
 
+    <div id="sampleMarkerOverlay" class="overlay sample-marker-overlay hidden">
+      <div class="overlay-panel sample-marker-window">
+        <div class="overlay-header sample-marker-header">
+          <div class="sample-marker-heading">
+            <strong id="sampleMarkerTitle">Warp Markers</strong>
+            <span id="sampleMarkerMeta">Sample clip</span>
+          </div>
+          <div class="overlay-actions">
+            <button id="sampleMarkerPreviewBtn" class="btn toggle" type="button" aria-pressed="false">Preview</button>
+            <button id="sampleMarkerResetBtn" class="btn" type="button">Reset Markers</button>
+            <button id="closeSampleMarkerBtn" class="btn" type="button">Done</button>
+          </div>
+        </div>
+        <div class="sample-marker-toolbar">
+          <label>
+            <span>Grid</span>
+            <select id="sampleMarkerSnapSelect">
+              <option value="1">1/4</option>
+              <option value="0.5">1/8</option>
+              <option value="0.25" selected>1/16</option>
+              <option value="0.125">1/32</option>
+              <option value="0.0625">1/64</option>
+            </select>
+          </label>
+          <div class="sample-marker-stepper" aria-label="Horizontal zoom">
+            <button id="sampleMarkerZoomOutBtn" class="btn" type="button" aria-label="Zoom out" title="Zoom out">−</button>
+            <output id="sampleMarkerZoomValue">100%</output>
+            <button id="sampleMarkerZoomInBtn" class="btn" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+          </div>
+          <button id="sampleMarkerAddBtn" class="btn" type="button">Add Marker</button>
+          <button id="sampleMarkerDeleteBtn" class="btn" type="button" disabled>Delete Marker</button>
+          <button id="sampleMarkerWarpBtn" class="btn toggle" type="button" aria-pressed="false">Warp</button>
+          <label>
+            <span>Length</span>
+            <select id="sampleMarkerBarsSelect">
+              <option value="0.25">1 beat</option>
+              <option value="0.5">2 beats</option>
+              <option value="1">1 bar</option>
+              <option value="2">2 bars</option>
+              <option value="4">4 bars</option>
+              <option value="8">8 bars</option>
+              <option value="16">16 bars</option>
+              <option value="32">32 bars</option>
+            </select>
+          </label>
+          <div id="sampleMarkerSelection" class="sample-marker-selection">
+            <span>No marker selected</span>
+          </div>
+        </div>
+        <div class="sample-marker-body">
+          <div id="sampleMarkerViewport" class="sample-marker-viewport">
+            <canvas id="sampleMarkerCanvas" height="330" aria-label="Warp marker editor"></canvas>
+          </div>
+          <div class="sample-range-section">
+            <div class="sample-range-head">
+              <span>Source Range</span>
+              <div class="sample-range-values">
+                <label>Start <input id="sampleRangeStartInput" type="number" min="0" step="0.001" /></label>
+                <label>End <input id="sampleRangeEndInput" type="number" min="0" step="0.001" /></label>
+                <label id="sampleLoopStartField">Loop In <input id="sampleLoopStartInput" type="number" min="0" step="0.001" /></label>
+                <label id="sampleLoopEndField">Loop Out <input id="sampleLoopEndInput" type="number" min="0" step="0.001" /></label>
+              </div>
+            </div>
+            <canvas id="sampleRangeCanvas" height="96" aria-label="Sample start, end and loop range"></canvas>
+          </div>
+          <div class="sample-marker-status">
+            <span>Double-click the waveform to add a marker. Drag a marker to align its transient to the beat grid.</span>
+            <output id="sampleMarkerStatus">0 markers</output>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="editorOverlay" class="overlay hidden">
       <div class="overlay-panel">
         <div class="overlay-header">

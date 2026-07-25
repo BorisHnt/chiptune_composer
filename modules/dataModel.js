@@ -124,6 +124,7 @@ export const DEFAULT_SAMPLE_WARP = {
   mode: "repitch",
   sourceBpm: 120,
   bars: 1,
+  markers: [],
 };
 export const SAMPLE_WARP_BAR_OPTIONS = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
 
@@ -170,7 +171,7 @@ export function createBlock({ startBeat = 0, length = 4, type = "synth" } = {}) 
       reverse: false,
       fadeIn: 0,
       fadeOut: 0,
-      warp: { ...DEFAULT_SAMPLE_WARP },
+      warp: { ...DEFAULT_SAMPLE_WARP, markers: [] },
     });
   }
 
@@ -329,6 +330,21 @@ function normalizeBlocks(blocks, type, drumRows) {
 
 function normalizeSampleWarp(warp) {
   const safe = isObject(warp) ? warp : {};
+  const markers = Array.isArray(safe.markers)
+    ? safe.markers
+        .filter((marker) =>
+          isObject(marker) &&
+          Number.isFinite(marker.sourceTime) &&
+          Number.isFinite(marker.beat),
+        )
+        .map((marker) => ({
+          id: typeof marker.id === "string" && marker.id ? marker.id : createId(),
+          sourceTime: Math.max(0, marker.sourceTime),
+          beat: Math.max(0, marker.beat),
+        }))
+        .sort((a, b) => a.sourceTime - b.sourceTime)
+        .slice(0, 128)
+    : [];
   return {
     enabled: Boolean(safe.enabled),
     mode: safe.mode === "beats" ? "beats" : "repitch",
@@ -340,6 +356,7 @@ function normalizeSampleWarp(warp) {
           Math.abs(option - safe.bars) < Math.abs(closest - safe.bars) ? option : closest,
         )
       : DEFAULT_SAMPLE_WARP.bars,
+    markers,
   };
 }
 

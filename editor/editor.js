@@ -16,6 +16,13 @@ const ui = {
   fileMeta: document.getElementById("fileMeta"),
   waveformViewBtn: document.getElementById("waveformViewBtn"),
   spectralViewBtn: document.getElementById("spectralViewBtn"),
+  spectralControls: document.getElementById("spectralControls"),
+  spectralLogBtn: document.getElementById("spectralLogBtn"),
+  spectralLinearBtn: document.getElementById("spectralLinearBtn"),
+  spectralZoomOutBtn: document.getElementById("spectralZoomOutBtn"),
+  spectralZoomInBtn: document.getElementById("spectralZoomInBtn"),
+  spectralRangeValue: document.getElementById("spectralRangeValue"),
+  spectralNoteGridBtn: document.getElementById("spectralNoteGridBtn"),
   cursorTime: document.getElementById("cursorTime"),
   selectionDuration: document.getElementById("selectionDuration"),
   overviewCanvas: document.getElementById("overviewCanvas"),
@@ -63,6 +70,8 @@ const SPECTROGRAM_FFT_SIZE = 1024;
 const SPECTROGRAM_HEIGHT = 256;
 const SPECTROGRAM_MIN_FREQUENCY = 30;
 const SPECTROGRAM_MAX_COLUMNS = 2048;
+const SPECTRAL_ZOOM_LEVELS = [1, 2, 4, 8, 16];
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 let audioContext = null;
 let audioBuffer = null;
@@ -72,6 +81,9 @@ let cursorTime = 0;
 let zoom = 1;
 let displayWidth = 1;
 let viewMode = "waveform";
+let spectralScale = "log";
+let spectralFrequencyZoom = 1;
+let spectralNoteGrid = false;
 let spectrogramCache = null;
 let spectrogramJobBuffer = null;
 let spectrogramGeneration = 0;
@@ -139,6 +151,48 @@ function setStatus(message) {
   ui.statusMessage.textContent = message;
 }
 
+function getSpectralFrequencyRange() {
+  const nativeMaximum = audioBuffer
+    ? Math.min(20000, audioBuffer.sampleRate / 2)
+    : 20000;
+  const maxFrequency = Math.max(
+    SPECTROGRAM_MIN_FREQUENCY * 2,
+    nativeMaximum / spectralFrequencyZoom,
+  );
+  return {
+    minFrequency: spectralScale === "log" ? SPECTROGRAM_MIN_FREQUENCY : 0,
+    maxFrequency,
+  };
+}
+
+function formatFrequency(frequency) {
+  if (frequency >= 1000) {
+    const kilohertz = frequency / 1000;
+    return `${Number.isInteger(kilohertz) ? kilohertz : kilohertz.toFixed(2)} kHz`;
+  }
+  return `${Math.round(frequency)} Hz`;
+}
+
+function updateSpectralControls() {
+  const loaded = Boolean(audioBuffer);
+  const zoomIndex = SPECTRAL_ZOOM_LEVELS.indexOf(spectralFrequencyZoom);
+  const { maxFrequency } = getSpectralFrequencyRange();
+  ui.spectralControls.classList.toggle("hidden", viewMode !== "spectral");
+  ui.spectralLogBtn.disabled = !loaded;
+  ui.spectralLinearBtn.disabled = !loaded;
+  ui.spectralZoomOutBtn.disabled = !loaded || zoomIndex <= 0;
+  ui.spectralZoomInBtn.disabled =
+    !loaded || zoomIndex >= SPECTRAL_ZOOM_LEVELS.length - 1;
+  ui.spectralNoteGridBtn.disabled = !loaded;
+  ui.spectralLogBtn.setAttribute("aria-pressed", spectralScale === "log" ? "true" : "false");
+  ui.spectralLinearBtn.setAttribute(
+    "aria-pressed",
+    spectralScale === "linear" ? "true" : "false",
+  );
+  ui.spectralNoteGridBtn.setAttribute("aria-pressed", spectralNoteGrid ? "true" : "false");
+  ui.spectralRangeValue.value = formatFrequency(maxFrequency);
+}
+
 function setSelection(start, end, active = true, { render = true } = {}) {
   if (!audioBuffer) return;
   const nextStart = clamp(Math.min(start, end), 0, audioBuffer.duration);
@@ -193,6 +247,7 @@ function updateInterface() {
   ui.redoBtn.disabled = historyIndex < 0 || historyIndex >= history.length - 1;
   ui.waveformViewBtn.setAttribute("aria-pressed", viewMode === "waveform" ? "true" : "false");
   ui.spectralViewBtn.setAttribute("aria-pressed", viewMode === "spectral" ? "true" : "false");
+  updateSpectralControls();
 
   ui.emptyState.classList.toggle("hidden", loaded);
   ui.selectionStartInput.disabled = !loaded;
@@ -320,20 +375,42 @@ function getSpectralColor(level) {
   ];
 }
 
-function createSpectrogramImage(magnitudes, columns, bins, sampleRate) {
+function frequencyToY(frequency, top, height, minFrequency, maxFrequency, scale) {
+  if (scale === "linear") {
+    return top + (1 - clamp(frequency / maxFrequency, 0, 1)) * height;
+  }
+  const safeFrequency = clamp(frequency, minFrequency, maxFrequency);
+  const logRange = Math.log(maxFrequency / minFrequency);
+  return top + (Math.log(maxFrequency / safeFrequency) / logRange) * height;
+}
+
+function createSpectrogramImage(
+  magnitudes,
+  columns,
+  bins,
+  sampleRate,
+  scale,
+  minFrequency,
+  maxFrequency,
+) {
   const canvas = document.createElement("canvas");
   canvas.width = columns;
   canvas.height = SPECTROGRAM_HEIGHT;
   const context = canvas.getContext("2d");
   const image = context.createImageData(columns, SPECTROGRAM_HEIGHT);
   const nyquist = sampleRate / 2;
-  const maxFrequency = Math.min(20000, nyquist);
-  const minFrequency = Math.min(SPECTROGRAM_MIN_FREQUENCY, maxFrequency / 2);
-  const logRange = Math.log(maxFrequency / minFrequency);
+  const safeMaximum = Math.min(maxFrequency, nyquist);
+  const safeMinimum =
+    scale === "log" ? Math.min(minFrequency, safeMaximum / 2) : 0;
+  const logRange =
+    scale === "log" ? Math.log(safeMaximum / safeMinimum) : 0;
 
   for (let y = 0; y < SPECTROGRAM_HEIGHT; y += 1) {
     const position = y / Math.max(1, SPECTROGRAM_HEIGHT - 1);
-    const frequency = maxFrequency / Math.exp(position * logRange);
+    const frequency =
+      scale === "linear"
+        ? safeMaximum * (1 - position)
+        : safeMaximum / Math.exp(position * logRange);
     const rawBin = (frequency / nyquist) * (bins - 1);
     const lowerBin = Math.floor(rawBin);
     const upperBin = Math.min(bins - 1, lowerBin + 1);
@@ -351,7 +428,26 @@ function createSpectrogramImage(magnitudes, columns, bins, sampleRate) {
     }
   }
   context.putImageData(image, 0, 0);
-  return { canvas, minFrequency, maxFrequency };
+  return canvas;
+}
+
+function getSpectrogramImage(cache, scale, minFrequency, maxFrequency) {
+  const key = `${scale}:${minFrequency.toFixed(3)}:${maxFrequency.toFixed(3)}`;
+  if (!cache.images.has(key)) {
+    cache.images.set(
+      key,
+      createSpectrogramImage(
+        cache.magnitudes,
+        cache.columns,
+        cache.bins,
+        cache.sampleRate,
+        scale,
+        minFrequency,
+        maxFrequency,
+      ),
+    );
+  }
+  return cache.images.get(key);
 }
 
 async function calculateSpectrogram(buffer, generation) {
@@ -403,8 +499,15 @@ async function calculateSpectrogram(buffer, generation) {
     }
   }
 
-  const image = createSpectrogramImage(magnitudes, columns, bins, buffer.sampleRate);
-  return { buffer, columns, bins, ...image };
+  return {
+    buffer,
+    columns,
+    bins,
+    magnitudes,
+    sampleRate: buffer.sampleRate,
+    fftSize,
+    images: new Map(),
+  };
 }
 
 function requestSpectrogram() {
@@ -438,24 +541,115 @@ function invalidateSpectrogram() {
   spectrogramJobBuffer = null;
 }
 
-function drawFrequencyGrid(context, width, top, height, minFrequency, maxFrequency) {
-  const frequencies = [50, 100, 250, 500, 1000, 2500, 5000, 10000, 20000];
-  const logRange = Math.log(maxFrequency / minFrequency);
+function drawFrequencyGrid(
+  context,
+  width,
+  top,
+  height,
+  minFrequency,
+  maxFrequency,
+  scale,
+) {
+  const frequencies = [
+    20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 15000, 20000,
+  ];
   context.font = "10px SFMono-Regular, Consolas, monospace";
   context.textBaseline = "bottom";
-  frequencies.forEach((frequency) => {
-    if (frequency < minFrequency || frequency > maxFrequency) return;
-    const position = Math.log(maxFrequency / frequency) / logRange;
-    const y = top + position * height;
-    context.strokeStyle = "rgba(220, 232, 232, 0.16)";
+  let previousY = -Infinity;
+  frequencies
+    .filter((frequency) => frequency >= minFrequency && frequency <= maxFrequency)
+    .sort((a, b) => b - a)
+    .forEach((frequency) => {
+      const y = frequencyToY(
+        frequency,
+        top,
+        height,
+        minFrequency,
+        maxFrequency,
+        scale,
+      );
+      if (Math.abs(y - previousY) < 22) return;
+      previousY = y;
+      context.strokeStyle = "rgba(220, 232, 232, 0.16)";
+      context.beginPath();
+      context.moveTo(0, y + 0.5);
+      context.lineTo(width, y + 0.5);
+      context.stroke();
+      context.fillStyle = "rgba(235, 242, 241, 0.78)";
+      const label = frequency >= 1000 ? `${frequency / 1000}k` : `${frequency}`;
+      context.fillText(label, 5, y - 2);
+    });
+}
+
+function drawNoteGrid(
+  context,
+  width,
+  top,
+  height,
+  minFrequency,
+  maxFrequency,
+  scale,
+) {
+  context.font = "9px SFMono-Regular, Consolas, monospace";
+  context.textAlign = "right";
+  context.textBaseline = "bottom";
+  let lastLabelY = -Infinity;
+
+  for (let midi = 0; midi <= 127; midi += 1) {
+    const frequency = 440 * 2 ** ((midi - 69) / 12);
+    if (frequency < minFrequency || frequency > maxFrequency) continue;
+    const nextFrequency = 440 * 2 ** ((midi + 1 - 69) / 12);
+    const y = frequencyToY(
+      frequency,
+      top,
+      height,
+      minFrequency,
+      maxFrequency,
+      scale,
+    );
+    const nextY = frequencyToY(
+      Math.min(nextFrequency, maxFrequency),
+      top,
+      height,
+      minFrequency,
+      maxFrequency,
+      scale,
+    );
+    const semitoneSpacing = Math.abs(nextY - y);
+    const isOctave = midi % 12 === 0;
+    const isReferencePitch = midi === 69;
+    const isGuide = isOctave || isReferencePitch;
+    if (!isGuide && semitoneSpacing < 5) continue;
+
+    context.strokeStyle = isGuide
+      ? "rgba(244, 184, 73, 0.38)"
+      : "rgba(244, 184, 73, 0.13)";
+    context.lineWidth = isGuide ? 1.2 : 1;
     context.beginPath();
     context.moveTo(0, y + 0.5);
     context.lineTo(width, y + 0.5);
     context.stroke();
-    context.fillStyle = "rgba(235, 242, 241, 0.78)";
-    const label = frequency >= 1000 ? `${frequency / 1000}k` : `${frequency}`;
-    context.fillText(label, 5, y - 2);
-  });
+
+    const canLabel = isGuide
+      ? Math.abs(y - lastLabelY) >= 12
+      : semitoneSpacing >= 10 && Math.abs(y - lastLabelY) >= 10;
+    if (!canLabel) continue;
+    const octave = Math.floor(midi / 12) - 1;
+    const frequencyLabel =
+      frequency >= 1000
+        ? `${(frequency / 1000).toFixed(2)} kHz`
+        : `${frequency.toFixed(frequency < 100 ? 1 : 0)} Hz`;
+    context.fillStyle = isGuide
+      ? "rgba(255, 222, 150, 0.94)"
+      : "rgba(255, 231, 181, 0.72)";
+    context.fillText(
+      `${NOTE_NAMES[midi % 12]}${octave} · ${frequencyLabel}`,
+      width - 6,
+      y - 2,
+    );
+    lastLabelY = y;
+  }
+  context.textAlign = "start";
 }
 
 function drawSpectrogram(context, width, top, height) {
@@ -472,16 +666,35 @@ function drawSpectrogram(context, width, top, height) {
     return;
   }
 
+  const { minFrequency, maxFrequency } = getSpectralFrequencyRange();
+  const image = getSpectrogramImage(
+    spectrogramCache,
+    spectralScale,
+    minFrequency,
+    maxFrequency,
+  );
   context.imageSmoothingEnabled = true;
-  context.drawImage(spectrogramCache.canvas, 0, top, width, height);
+  context.drawImage(image, 0, top, width, height);
   drawFrequencyGrid(
     context,
     width,
     top,
     height,
-    spectrogramCache.minFrequency,
-    spectrogramCache.maxFrequency,
+    minFrequency,
+    maxFrequency,
+    spectralScale,
   );
+  if (spectralNoteGrid) {
+    drawNoteGrid(
+      context,
+      width,
+      top,
+      height,
+      minFrequency,
+      maxFrequency,
+      spectralScale,
+    );
+  }
 }
 
 function drawRuler(context, width, height) {
@@ -1095,6 +1308,37 @@ function setViewMode(mode) {
   }
 }
 
+function setSpectralScale(scale) {
+  const nextScale = scale === "linear" ? "linear" : "log";
+  if (spectralScale === nextScale) return;
+  spectralScale = nextScale;
+  updateSpectralControls();
+  renderWaveform();
+  setStatus(`${nextScale === "log" ? "Logarithmic" : "Linear"} frequency scale`);
+}
+
+function stepSpectralZoom(direction) {
+  const currentIndex = SPECTRAL_ZOOM_LEVELS.indexOf(spectralFrequencyZoom);
+  const nextIndex = clamp(
+    currentIndex + direction,
+    0,
+    SPECTRAL_ZOOM_LEVELS.length - 1,
+  );
+  if (nextIndex === currentIndex) return;
+  spectralFrequencyZoom = SPECTRAL_ZOOM_LEVELS[nextIndex];
+  updateSpectralControls();
+  renderWaveform();
+  const { maxFrequency } = getSpectralFrequencyRange();
+  setStatus(`Frequency range: ${formatFrequency(maxFrequency)}`);
+}
+
+function toggleSpectralNoteGrid() {
+  spectralNoteGrid = !spectralNoteGrid;
+  updateSpectralControls();
+  renderWaveform();
+  setStatus(spectralNoteGrid ? "Musical note grid shown" : "Musical note grid hidden");
+}
+
 async function importAudio(file) {
   if (!file) return;
   stopPlayback();
@@ -1206,6 +1450,11 @@ ui.undoBtn.addEventListener("click", undo);
 ui.redoBtn.addEventListener("click", redo);
 ui.waveformViewBtn.addEventListener("click", () => setViewMode("waveform"));
 ui.spectralViewBtn.addEventListener("click", () => setViewMode("spectral"));
+ui.spectralLogBtn.addEventListener("click", () => setSpectralScale("log"));
+ui.spectralLinearBtn.addEventListener("click", () => setSpectralScale("linear"));
+ui.spectralZoomOutBtn.addEventListener("click", () => stepSpectralZoom(-1));
+ui.spectralZoomInBtn.addEventListener("click", () => stepSpectralZoom(1));
+ui.spectralNoteGridBtn.addEventListener("click", toggleSpectralNoteGrid);
 ui.zoomSlider.addEventListener("input", () => {
   zoom = parseFloat(ui.zoomSlider.value);
   renderWaveform();
