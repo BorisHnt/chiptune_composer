@@ -1231,6 +1231,10 @@ export class AudioEngine {
     return SAMPLE_BUFFERS.has(assetId);
   }
 
+  getSampleAssetBuffer(assetId) {
+    return SAMPLE_BUFFERS.get(assetId) || null;
+  }
+
   setMasterVolume(value) {
     const volume = Math.max(0, Math.min(1, value));
     this.masterVolumeValue = volume;

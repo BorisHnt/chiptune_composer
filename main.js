@@ -924,6 +924,8 @@ function attachSampleWaveformHandlers(canvas, asset, block) {
 
 const SAMPLE_MARKER_ZOOM_LEVELS = [48, 72, 96, 144, 216, 320];
 const clampValue = (value, min, max) => Math.min(Math.max(value, min), max);
+const waveformAnalysisCache = new WeakMap();
+let sampleMarkerBaseCache = null;
 
 function getSampleMarkerContext() {
   const track = project.tracks.find((item) => item.id === activeSampleMarkerTrackId);
@@ -934,7 +936,14 @@ function getSampleMarkerContext() {
   if (!asset) return null;
   const duration = Math.max(0.001, asset.duration || block.sourceEnd || 1);
   normalizeSampleBoundaries(block, duration);
-  return { track, block, asset, duration, warp: ensureSampleWarp(block) };
+  return {
+    track,
+    block,
+    asset,
+    duration,
+    warp: ensureSampleWarp(block),
+    audioBuffer: audioEngine.getSampleAssetBuffer(block.assetId),
+  };
 }
 
 function getWarpEditorAnchors(block, warp, duration) {
@@ -1068,66 +1077,342 @@ function updateSampleMarkerControls() {
   syncSampleRangeInputs();
 }
 
+function prepareWaveformCanvas(canvas, width, height, cssWidth = width, cssHeight = height) {
+  const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+  const backingWidth = Math.max(1, Math.round(width * pixelRatio));
+  const backingHeight = Math.max(1, Math.round(height * pixelRatio));
+  if (canvas.width !== backingWidth) canvas.width = backingWidth;
+  if (canvas.height !== backingHeight) canvas.height = backingHeight;
+  canvas.style.width = `${cssWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
+  canvas.dataset.logicalWidth = String(width);
+  canvas.dataset.logicalHeight = String(height);
+  const drawing = canvas.getContext("2d");
+  drawing.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  drawing.imageSmoothingEnabled = false;
+  return { drawing, pixelRatio };
+}
+
+function getWaveformAnalysis(buffer) {
+  if (!buffer) return null;
+  const cached = waveformAnalysisCache.get(buffer);
+  if (cached) return cached;
+
+  const binCount = Math.min(
+    65536,
+    Math.max(2048, Math.ceil(buffer.length / 128)),
+  );
+  const channels = Array.from(
+    { length: Math.min(2, buffer.numberOfChannels) },
+    (_, channel) => {
+      const data = buffer.getChannelData(channel);
+      const minimums = new Float32Array(binCount);
+      const maximums = new Float32Array(binCount);
+      for (let bin = 0; bin < binCount; bin += 1) {
+        const from = Math.floor((bin / binCount) * data.length);
+        const to = Math.max(from + 1, Math.floor(((bin + 1) / binCount) * data.length));
+        let minimum = 1;
+        let maximum = -1;
+        for (let index = from; index < to; index += 1) {
+          const value = data[index];
+          if (value < minimum) minimum = value;
+          if (value > maximum) maximum = value;
+        }
+        minimums[bin] = minimum;
+        maximums[bin] = maximum;
+      }
+      return { data, minimums, maximums };
+    },
+  );
+
+  const transients = [];
+  let envelope = 0;
+  let lastTransient = -1;
+  for (let bin = 0; bin < binCount; bin += 1) {
+    let peak = 0;
+    channels.forEach((channel) => {
+      peak = Math.max(
+        peak,
+        Math.abs(channel.minimums[bin]),
+        Math.abs(channel.maximums[bin]),
+      );
+    });
+    const onset = peak - envelope;
+    envelope = Math.max(peak, envelope * 0.94);
+    const time = (bin / binCount) * buffer.duration;
+    if (
+      peak >= 0.14 &&
+      onset >= 0.075 &&
+      time - lastTransient >= 0.045
+    ) {
+      transients.push(time);
+      lastTransient = time;
+      if (transients.length >= 1000) break;
+    }
+  }
+
+  const analysis = { buffer, binCount, channels, transients };
+  waveformAnalysisCache.set(buffer, analysis);
+  return analysis;
+}
+
+function readWaveformEnvelope(analysis, channelIndex, startTime, endTime) {
+  if (!analysis?.channels.length) return { minimum: 0, maximum: 0 };
+  const channel = analysis.channels[Math.min(channelIndex, analysis.channels.length - 1)];
+  const duration = Math.max(0.001, analysis.buffer.duration);
+  const fromTime = clampValue(Math.min(startTime, endTime), 0, duration);
+  const toTime = clampValue(Math.max(startTime, endTime), fromTime, duration);
+  const sampleFrom = Math.floor((fromTime / duration) * channel.data.length);
+  const sampleTo = Math.max(
+    sampleFrom + 1,
+    Math.ceil((toTime / duration) * channel.data.length),
+  );
+  let minimum = 1;
+  let maximum = -1;
+
+  if (sampleTo - sampleFrom <= 512) {
+    for (let index = sampleFrom; index < sampleTo && index < channel.data.length; index += 1) {
+      const value = channel.data[index];
+      if (value < minimum) minimum = value;
+      if (value > maximum) maximum = value;
+    }
+  } else {
+    const binFrom = Math.floor((fromTime / duration) * analysis.binCount);
+    const binTo = Math.max(
+      binFrom + 1,
+      Math.ceil((toTime / duration) * analysis.binCount),
+    );
+    for (let bin = binFrom; bin < binTo && bin < analysis.binCount; bin += 1) {
+      if (channel.minimums[bin] < minimum) minimum = channel.minimums[bin];
+      if (channel.maximums[bin] > maximum) maximum = channel.maximums[bin];
+    }
+  }
+  return {
+    minimum: minimum === 1 ? 0 : minimum,
+    maximum: maximum === -1 ? 0 : maximum,
+  };
+}
+
+function getFallbackEnvelope(asset, sourceTime, duration) {
+  const peaks = asset.peaks || [];
+  const peakIndex = Math.round(
+    clampValue(sourceTime / duration, 0, 1) * Math.max(0, peaks.length - 1),
+  );
+  const peak = peaks[peakIndex] || 0;
+  return { minimum: -peak, maximum: peak };
+}
+
+function drawDetailedWaveform(
+  drawing,
+  {
+    analysis,
+    asset,
+    duration,
+    width,
+    top,
+    height,
+    sourceTimeAtX,
+  },
+) {
+  const channelCount = Math.max(1, analysis?.channels.length || 1);
+  const channelColors = [
+    { fill: "rgba(88, 199, 194, 0.34)", stroke: "#75ddd4", label: "L" },
+    { fill: "rgba(255, 176, 163, 0.3)", stroke: "#ffb0a3", label: "R" },
+  ];
+  const sourceTimes = new Float64Array(width + 1);
+  for (let x = 0; x <= width; x += 1) sourceTimes[x] = sourceTimeAtX(x);
+
+  for (let channelIndex = 0; channelIndex < channelCount; channelIndex += 1) {
+    const laneTop = top + (channelIndex / channelCount) * height;
+    const laneHeight = height / channelCount;
+    const center = laneTop + laneHeight / 2;
+    const amplitude = laneHeight * 0.43;
+    const minimums = new Float32Array(width);
+    const maximums = new Float32Array(width);
+    for (let x = 0; x < width; x += 1) {
+      const envelope = analysis
+        ? readWaveformEnvelope(analysis, channelIndex, sourceTimes[x], sourceTimes[x + 1])
+        : getFallbackEnvelope(asset, sourceTimes[x], duration);
+      minimums[x] = envelope.minimum;
+      maximums[x] = envelope.maximum;
+    }
+
+    drawing.strokeStyle = "rgba(238, 242, 244, 0.18)";
+    drawing.lineWidth = 1;
+    drawing.beginPath();
+    drawing.moveTo(0, center + 0.5);
+    drawing.lineTo(width, center + 0.5);
+    drawing.stroke();
+
+    const colors = channelColors[channelIndex] || channelColors[0];
+    drawing.beginPath();
+    drawing.moveTo(0, center - maximums[0] * amplitude);
+    for (let x = 1; x < width; x += 1) {
+      drawing.lineTo(x, center - maximums[x] * amplitude);
+    }
+    for (let x = width - 1; x >= 0; x -= 1) {
+      drawing.lineTo(x, center - minimums[x] * amplitude);
+    }
+    drawing.closePath();
+    drawing.fillStyle = colors.fill;
+    drawing.fill();
+
+    drawing.strokeStyle = colors.stroke;
+    drawing.lineWidth = 1;
+    drawing.beginPath();
+    for (let x = 0; x < width; x += 1) {
+      const y = center - maximums[x] * amplitude;
+      if (x === 0) drawing.moveTo(x, y);
+      else drawing.lineTo(x, y);
+    }
+    drawing.stroke();
+    drawing.beginPath();
+    for (let x = 0; x < width; x += 1) {
+      const y = center - minimums[x] * amplitude;
+      if (x === 0) drawing.moveTo(x, y);
+      else drawing.lineTo(x, y);
+    }
+    drawing.stroke();
+
+    if (channelCount > 1) {
+      drawing.fillStyle = colors.stroke;
+      drawing.font = '10px "JetBrains Mono", monospace';
+      drawing.fillText(colors.label, 7, laneTop + 14);
+    }
+  }
+}
+
 function drawWarpMarkerCanvas() {
   const context = getSampleMarkerContext();
   if (!context) return;
-  const { block, asset, warp, duration } = context;
+  const { block, asset, warp, duration, audioBuffer } = context;
   const { anchors, markers, totalBeats } = getWarpEditorAnchors(block, warp, duration);
   const viewportWidth = Math.max(320, ui.sampleMarkerViewport.clientWidth);
   const width = Math.max(viewportWidth, Math.ceil(totalBeats * sampleMarkerZoom));
   const height = Math.max(330, ui.sampleMarkerViewport.clientHeight);
   const canvas = ui.sampleMarkerCanvas;
-  if (canvas.width !== width) canvas.width = width;
-  if (canvas.height !== height) canvas.height = height;
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
-  const drawing = canvas.getContext("2d");
+  const { drawing, pixelRatio } = prepareWaveformCanvas(canvas, width, height);
   const rulerHeight = 32;
-  const center = rulerHeight + (height - rulerHeight) / 2;
-  const amplitudeHeight = (height - rulerHeight) * 0.43;
-
-  drawing.fillStyle = "#172027";
-  drawing.fillRect(0, 0, width, height);
-  drawing.fillStyle = "#202c34";
-  drawing.fillRect(0, 0, width, rulerHeight);
-
   const gridStep = parseFloat(ui.sampleMarkerSnapSelect.value) || 0.25;
-  for (let beat = 0; beat <= totalBeats + 0.0001; beat += gridStep) {
-    const x = (beat / totalBeats) * width;
-    const isBar = Math.abs(beat % 4) < 0.0001;
-    const isBeat = Math.abs(beat % 1) < 0.0001;
-    drawing.strokeStyle = isBar
-      ? "rgba(238, 242, 244, 0.46)"
-      : isBeat
-        ? "rgba(238, 242, 244, 0.24)"
-        : "rgba(238, 242, 244, 0.09)";
-    drawing.lineWidth = isBar ? 1.5 : 1;
-    drawing.beginPath();
-    drawing.moveTo(x, 0);
-    drawing.lineTo(x, height);
-    drawing.stroke();
-    if (isBeat) {
-      drawing.fillStyle = "rgba(238, 242, 244, 0.78)";
-      drawing.font = '11px "JetBrains Mono", monospace';
-      drawing.fillText(formatMarkerBeat(beat), x + 5, 20);
+  const analysis = getWaveformAnalysis(audioBuffer);
+  const markerKey = anchors
+    .map((marker) => `${marker.sourceTime.toFixed(5)}:${marker.beat.toFixed(5)}`)
+    .join("|");
+  const baseKey = [
+    asset.id,
+    width,
+    height,
+    pixelRatio,
+    gridStep,
+    project.bpm,
+    markerKey,
+    analysis?.buffer.length || 0,
+  ].join(":");
+
+  if (sampleMarkerBaseCache?.key !== baseKey) {
+    const baseCanvas = document.createElement("canvas");
+    const { drawing: base } = prepareWaveformCanvas(baseCanvas, width, height);
+    const waveformTop = rulerHeight + 36;
+    const waveformHeight = height - waveformTop;
+
+    base.fillStyle = "#172027";
+    base.fillRect(0, 0, width, height);
+    base.fillStyle = "#202c34";
+    base.fillRect(0, 0, width, rulerHeight);
+
+    for (let index = 0; index < anchors.length - 1; index += 1) {
+      const before = anchors[index];
+      const after = anchors[index + 1];
+      const left = (before.beat / totalBeats) * width;
+      const right = (after.beat / totalBeats) * width;
+      const targetSeconds = (after.beat - before.beat) * (60 / project.bpm);
+      const sourceSeconds = after.sourceTime - before.sourceTime;
+      const sourceRate = sourceSeconds / Math.max(0.001, targetSeconds);
+      base.fillStyle = sourceRate > 1.03
+        ? "rgba(255, 176, 163, 0.055)"
+        : sourceRate < 0.97
+          ? "rgba(88, 199, 194, 0.06)"
+          : index % 2
+            ? "rgba(238, 242, 244, 0.022)"
+            : "rgba(238, 242, 244, 0.01)";
+      base.fillRect(left, rulerHeight, right - left, height - rulerHeight);
+      if (right - left >= 86) {
+        base.fillStyle = sourceRate > 1.03 ? "#ffb0a3" : sourceRate < 0.97 ? "#75ddd4" : "#aeb9bd";
+        base.font = '10px "JetBrains Mono", monospace';
+        base.fillText(`${sourceRate.toFixed(2)}x`, left + 7, rulerHeight + 14);
+      }
     }
+
+    for (let beat = 0; beat <= totalBeats + 0.0001; beat += gridStep) {
+      const x = (beat / totalBeats) * width;
+      const isBar = Math.abs(beat % 4) < 0.0001;
+      const isBeat = Math.abs(beat % 1) < 0.0001;
+      base.strokeStyle = isBar
+        ? "rgba(238, 242, 244, 0.46)"
+        : isBeat
+          ? "rgba(238, 242, 244, 0.24)"
+          : "rgba(238, 242, 244, 0.09)";
+      base.lineWidth = isBar ? 1.5 : 1;
+      base.beginPath();
+      base.moveTo(x, 0);
+      base.lineTo(x, height);
+      base.stroke();
+      if (isBeat) {
+        base.fillStyle = "rgba(238, 242, 244, 0.78)";
+        base.font = '11px "JetBrains Mono", monospace';
+        base.fillText(formatMarkerBeat(beat), x + 5, 20);
+      }
+    }
+
+    if (analysis) {
+      analysis.transients.forEach((sourceTime) => {
+        if (sourceTime <= anchors[0].sourceTime || sourceTime >= anchors[anchors.length - 1].sourceTime) {
+          return;
+        }
+        const beat = warpBeatAtSourceTime(anchors, sourceTime);
+        const x = (beat / totalBeats) * width;
+        base.strokeStyle = "rgba(117, 221, 212, 0.17)";
+        base.lineWidth = 1;
+        base.beginPath();
+        base.moveTo(x, rulerHeight);
+        base.lineTo(x, height);
+        base.stroke();
+        base.fillStyle = "rgba(117, 221, 212, 0.7)";
+        base.beginPath();
+        base.moveTo(x - 3, rulerHeight);
+        base.lineTo(x + 3, rulerHeight);
+        base.lineTo(x, rulerHeight + 5);
+        base.closePath();
+        base.fill();
+      });
+    }
+
+    drawDetailedWaveform(base, {
+      analysis,
+      asset,
+      duration,
+      width,
+      top: waveformTop,
+      height: waveformHeight,
+      sourceTimeAtX: (x) =>
+        sourceTimeAtWarpBeat(anchors, (clampValue(x, 0, width) / width) * totalBeats),
+    });
+
+    sampleMarkerBaseCache = { key: baseKey, canvas: baseCanvas };
   }
 
-  const peaks = asset.peaks || [];
-  drawing.strokeStyle = "#58c7c2";
-  drawing.lineWidth = 1.2;
-  drawing.beginPath();
-  for (let x = 0; x < width; x += 1) {
-    const beat = (x / width) * totalBeats;
-    const sourceTime = sourceTimeAtWarpBeat(anchors, beat);
-    const peakIndex = Math.round(
-      clampValue(sourceTime / duration, 0, 1) * Math.max(0, peaks.length - 1),
-    );
-    const amplitude = (peaks[peakIndex] || 0) * amplitudeHeight;
-    drawing.moveTo(x, center - amplitude);
-    drawing.lineTo(x, center + amplitude);
-  }
-  drawing.stroke();
+  drawing.clearRect(0, 0, width, height);
+  drawing.drawImage(
+    sampleMarkerBaseCache.canvas,
+    0,
+    0,
+    sampleMarkerBaseCache.canvas.width,
+    sampleMarkerBaseCache.canvas.height,
+    0,
+    0,
+    width,
+    height,
+  );
 
   const drawMarker = (marker, implicit = false) => {
     const x = (marker.beat / totalBeats) * width;
@@ -1150,7 +1435,7 @@ function drawWarpMarkerCanvas() {
     const label = implicit
       ? marker.id === "range-start" ? "START" : "END"
       : `${formatMarkerBeat(marker.beat)} · ${marker.sourceTime.toFixed(3)}s`;
-    drawing.fillText(label, clampValue(x + 6, 4, width - 130), rulerHeight + 16);
+    drawing.fillText(label, clampValue(x + 6, 4, width - 130), rulerHeight + 30);
   };
   drawMarker(anchors[0], true);
   markers.forEach((marker) => drawMarker(marker));
@@ -1165,31 +1450,46 @@ function drawWarpMarkerCanvas() {
     drawing.moveTo(x, 0);
     drawing.lineTo(x, height);
     drawing.stroke();
+    drawing.fillStyle = "#ff6973";
+    drawing.beginPath();
+    drawing.moveTo(x - 5, rulerHeight);
+    drawing.lineTo(x + 5, rulerHeight);
+    drawing.lineTo(x, rulerHeight + 7);
+    drawing.closePath();
+    drawing.fill();
   }
 }
 
 function drawSampleRangeCanvas() {
   const context = getSampleMarkerContext();
   if (!context) return;
-  const { block, asset, duration } = context;
+  const { block, asset, duration, audioBuffer } = context;
   const canvas = ui.sampleRangeCanvas;
   const width = Math.max(320, Math.floor(canvas.clientWidth || 900));
   const height = 96;
-  if (canvas.width !== width) canvas.width = width;
-  if (canvas.height !== height) canvas.height = height;
-  const drawing = canvas.getContext("2d");
+  const { drawing } = prepareWaveformCanvas(canvas, width, height, width, height);
   drawing.fillStyle = "#172027";
   drawing.fillRect(0, 0, width, height);
-  drawing.strokeStyle = "#58c7c2";
-  drawing.beginPath();
-  const peaks = asset.peaks || [];
-  peaks.forEach((peak, index) => {
-    const x = (index / Math.max(1, peaks.length - 1)) * width;
-    const amplitude = peak * height * 0.4;
-    drawing.moveTo(x, height / 2 - amplitude);
-    drawing.lineTo(x, height / 2 + amplitude);
+  const analysis = getWaveformAnalysis(audioBuffer);
+  drawDetailedWaveform(drawing, {
+    analysis,
+    asset,
+    duration,
+    width,
+    top: 0,
+    height,
+    sourceTimeAtX: (x) => (clampValue(x, 0, width) / width) * duration,
   });
-  drawing.stroke();
+
+  analysis?.transients.forEach((time) => {
+    const x = (time / duration) * width;
+    drawing.strokeStyle = "rgba(117, 221, 212, 0.22)";
+    drawing.lineWidth = 1;
+    drawing.beginPath();
+    drawing.moveTo(x, 0);
+    drawing.lineTo(x, height);
+    drawing.stroke();
+  });
 
   const startX = (block.sourceStart / duration) * width;
   const endX = (block.sourceEnd / duration) * width;
@@ -2886,8 +3186,10 @@ ui.sampleMarkerCanvas.addEventListener("dblclick", (event) => {
   const context = getSampleMarkerContext();
   if (!context) return;
   const rect = ui.sampleMarkerCanvas.getBoundingClientRect();
-  const x = (event.clientX - rect.left) * (ui.sampleMarkerCanvas.width / rect.width);
-  addWarpMarkerAtBeat((x / ui.sampleMarkerCanvas.width) * context.warp.bars * 4);
+  const logicalWidth =
+    Number(ui.sampleMarkerCanvas.dataset.logicalWidth) || ui.sampleMarkerCanvas.width;
+  const x = (event.clientX - rect.left) * (logicalWidth / rect.width);
+  addWarpMarkerAtBeat((x / logicalWidth) * context.warp.bars * 4);
 });
 
 {
@@ -2897,20 +3199,24 @@ ui.sampleMarkerCanvas.addEventListener("dblclick", (event) => {
     const context = getSampleMarkerContext();
     if (!context) return 0;
     const rect = ui.sampleMarkerCanvas.getBoundingClientRect();
-    const x = (event.clientX - rect.left) * (ui.sampleMarkerCanvas.width / rect.width);
-    return clampValue(x / ui.sampleMarkerCanvas.width, 0, 1) * context.warp.bars * 4;
+    const logicalWidth =
+      Number(ui.sampleMarkerCanvas.dataset.logicalWidth) || ui.sampleMarkerCanvas.width;
+    const x = (event.clientX - rect.left) * (logicalWidth / rect.width);
+    return clampValue(x / logicalWidth, 0, 1) * context.warp.bars * 4;
   };
   ui.sampleMarkerCanvas.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     const context = getSampleMarkerContext();
     if (!context) return;
     const rect = ui.sampleMarkerCanvas.getBoundingClientRect();
-    const x = (event.clientX - rect.left) * (ui.sampleMarkerCanvas.width / rect.width);
+    const logicalWidth =
+      Number(ui.sampleMarkerCanvas.dataset.logicalWidth) || ui.sampleMarkerCanvas.width;
+    const x = (event.clientX - rect.left) * (logicalWidth / rect.width);
     const totalBeats = context.warp.bars * 4;
     const nearest = context.warp.markers
       .map((marker) => ({
         marker,
-        distance: Math.abs((marker.beat / totalBeats) * ui.sampleMarkerCanvas.width - x),
+        distance: Math.abs((marker.beat / totalBeats) * logicalWidth - x),
       }))
       .sort((a, b) => a.distance - b.distance)[0];
     if (!nearest || nearest.distance > 12) {
@@ -3026,8 +3332,9 @@ ui.sampleMarkerAddBtn.addEventListener("click", () => {
   const context = getSampleMarkerContext();
   if (!context) return;
   const canvas = ui.sampleMarkerCanvas;
+  const logicalWidth = Number(canvas.dataset.logicalWidth) || canvas.width;
   const centerX = ui.sampleMarkerViewport.scrollLeft + ui.sampleMarkerViewport.clientWidth / 2;
-  addWarpMarkerAtBeat((centerX / canvas.width) * context.warp.bars * 4);
+  addWarpMarkerAtBeat((centerX / logicalWidth) * context.warp.bars * 4);
 });
 ui.sampleMarkerDeleteBtn.addEventListener("click", deleteSelectedWarpMarker);
 ui.sampleMarkerResetBtn.addEventListener("click", () => {
