@@ -319,6 +319,53 @@ export class Timeline {
     return label;
   }
 
+  getSamplePeak(asset, block, progress) {
+    const peaks = asset?.peaks || [];
+    const duration = Math.max(0.001, asset?.duration || 0.001);
+    if (!peaks.length) return 0;
+
+    const sourceStart = clamp(block.sourceStart || 0, 0, duration);
+    const sourceEnd = clamp(
+      Number.isFinite(block.sourceEnd) ? block.sourceEnd : duration,
+      sourceStart + 0.001,
+      duration,
+    );
+    const isLoop = block.mode === "loop";
+    const activeStart = isLoop
+      ? clamp(block.loopStart ?? sourceStart, sourceStart, sourceEnd - 0.001)
+      : sourceStart;
+    const activeEnd = isLoop
+      ? clamp(block.loopEnd ?? sourceEnd, activeStart + 0.001, sourceEnd)
+      : sourceEnd;
+    const activeDuration = Math.max(0.001, activeEnd - activeStart);
+    const rawOffset = Number.isFinite(block.offset) ? Math.max(0, block.offset) : 0;
+    const offset = isLoop
+      ? rawOffset % activeDuration
+      : clamp(rawOffset, 0, activeDuration - 0.001);
+    const projectBpm = Math.max(1, this.project.bpm || 120);
+    const warpRate = block.warp?.enabled
+      ? projectBpm / clamp(block.warp.sourceBpm || projectBpm, 20, 400)
+      : 1;
+    const pitchRate = 2 ** ((block.pitch || 0) / 12);
+    const sourceRate =
+      block.warp?.enabled && block.warp.mode === "beats"
+        ? warpRate
+        : warpRate * pitchRate;
+    const outputDuration = Math.max(0.001, block.length * (60 / projectBpm));
+    let sourceElapsed = offset + progress * outputDuration * sourceRate;
+
+    if (!isLoop && sourceElapsed >= activeDuration) return 0;
+    if (isLoop) sourceElapsed %= activeDuration;
+
+    const sourceTime = block.reverse
+      ? activeEnd - sourceElapsed
+      : activeStart + sourceElapsed;
+    const sourceIndex = Math.round(
+      clamp(sourceTime / duration, 0, 1) * Math.max(0, peaks.length - 1),
+    );
+    return peaks[sourceIndex] || 0;
+  }
+
   createBlockElement(track, block) {
     const blockEl = document.createElement("div");
     blockEl.className = `block ${track.type}`;
@@ -367,8 +414,9 @@ export class Timeline {
     actions.appendChild(delBtn);
     header.appendChild(actions);
 
-    const resizeHandle = document.createElement("div");
-    resizeHandle.className = "block-resize";
+    const rightResizeHandle = document.createElement("div");
+    rightResizeHandle.className = "block-resize block-resize-right";
+    rightResizeHandle.title = "Resize clip end";
 
     blockEl.appendChild(header);
     if (track.type === "sample") {
@@ -376,11 +424,13 @@ export class Timeline {
       waveform.className = "block-waveform";
       waveform.setAttribute("aria-hidden", "true");
       const peaks = asset?.peaks || [];
-      const count = Math.min(48, peaks.length);
+      const count = peaks.length
+        ? Math.min(192, Math.max(12, Math.ceil(this.beatToPx(block.length) / 4)))
+        : 0;
       for (let index = 0; index < count; index += 1) {
-        const sourceIndex = Math.floor((index / Math.max(1, count - 1)) * (peaks.length - 1));
         const bar = document.createElement("i");
-        bar.style.height = `${Math.max(4, peaks[sourceIndex] * 100)}%`;
+        const progress = index / Math.max(1, count - 1);
+        bar.style.height = `${Math.max(4, this.getSamplePeak(asset, block, progress) * 100)}%`;
         waveform.appendChild(bar);
       }
       const mode = document.createElement("span");
@@ -392,24 +442,31 @@ export class Timeline {
           : "ONE SHOT";
       waveform.appendChild(mode);
       blockEl.appendChild(waveform);
+
+      const leftResizeHandle = document.createElement("div");
+      leftResizeHandle.className = "block-resize block-resize-left";
+      leftResizeHandle.title = "Trim clip start";
+      blockEl.appendChild(leftResizeHandle);
+      this.attachDragHandlers(blockEl, leftResizeHandle, rightResizeHandle, track, block);
+    } else {
+      this.attachDragHandlers(blockEl, null, rightResizeHandle, track, block);
     }
-    blockEl.appendChild(resizeHandle);
+    blockEl.appendChild(rightResizeHandle);
 
     blockEl.addEventListener("dblclick", (event) => {
       event.stopPropagation();
       this.onBlockEdit?.(track.id, block.id);
     });
 
-    this.attachDragHandlers(blockEl, resizeHandle, track, block);
-
     return blockEl;
   }
 
-  attachDragHandlers(blockEl, resizeHandle, track, block) {
+  attachDragHandlers(blockEl, leftResizeHandle, rightResizeHandle, track, block) {
     let dragMode = null;
     let startX = 0;
     let startBeat = 0;
     let startLength = 0;
+    let endBeat = 0;
 
     const onPointerMove = (event) => {
       if (!dragMode) return;
@@ -421,10 +478,23 @@ export class Timeline {
         blockEl.dataset.pendingStart = `${next}`;
       }
 
-      if (dragMode === "resize") {
+      if (dragMode === "resize-right") {
         const next = Math.max(this.snap, this.quantize(startLength + delta));
         blockEl.style.width = `${this.beatToPx(next)}px`;
         blockEl.dataset.pendingLength = `${next}`;
+      }
+
+      if (dragMode === "resize-left") {
+        const nextStart = clamp(
+          this.quantize(startBeat + delta),
+          0,
+          endBeat - this.snap,
+        );
+        const nextLength = endBeat - nextStart;
+        blockEl.style.left = `${this.beatToPx(nextStart)}px`;
+        blockEl.style.width = `${this.beatToPx(nextLength)}px`;
+        blockEl.dataset.pendingStart = `${nextStart}`;
+        blockEl.dataset.pendingLength = `${nextLength}`;
       }
     };
 
@@ -439,9 +509,20 @@ export class Timeline {
         });
       }
 
-      if (dragMode === "resize" && pendingLength) {
+      if (dragMode === "resize-right" && pendingLength) {
         this.onBlockChange?.(track.id, block.id, {
           length: parseFloat(pendingLength),
+        }, { edge: "right" });
+      }
+
+      if (dragMode === "resize-left" && pendingStart && pendingLength) {
+        const nextStart = parseFloat(pendingStart);
+        this.onBlockChange?.(track.id, block.id, {
+          startBeat: nextStart,
+          length: parseFloat(pendingLength),
+        }, {
+          edge: "left",
+          deltaBeats: nextStart - startBeat,
         });
       }
 
@@ -455,7 +536,7 @@ export class Timeline {
     blockEl.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
       if (event.target.closest(".block-action")) return;
-      if (event.target === resizeHandle) return;
+      if (event.target.closest(".block-resize")) return;
 
       dragMode = "move";
       startX = event.clientX;
@@ -466,11 +547,28 @@ export class Timeline {
       window.addEventListener("pointerup", onPointerUp);
     });
 
-    resizeHandle.addEventListener("pointerdown", (event) => {
+    rightResizeHandle.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
-      dragMode = "resize";
+      event.preventDefault();
+      event.stopPropagation();
+      dragMode = "resize-right";
       startX = event.clientX;
       startLength = block.length;
+      blockEl.setPointerCapture(event.pointerId);
+
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+    });
+
+    leftResizeHandle?.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dragMode = "resize-left";
+      startX = event.clientX;
+      startBeat = block.startBeat;
+      startLength = block.length;
+      endBeat = startBeat + startLength;
       blockEl.setPointerCapture(event.pointerId);
 
       window.addEventListener("pointermove", onPointerMove);

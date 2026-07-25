@@ -867,6 +867,7 @@ function scheduleWarpedBeatGrains(
     warpRate,
     pitchRate,
     loop,
+    sourceOffset,
   },
 ) {
   const sourceDuration = Math.max(0.001, sourceEnd - sourceStart);
@@ -881,7 +882,7 @@ function scheduleWarpedBeatGrains(
   const grainLevel = 0.9;
 
   for (let elapsed = 0; elapsed < outputDuration; elapsed += hopDuration) {
-    const sourceElapsed = elapsed * warpRate;
+    const sourceElapsed = sourceOffset + elapsed * warpRate;
     if (!loop && sourceElapsed >= sourceDuration) break;
 
     const offset =
@@ -931,7 +932,6 @@ function scheduleSampleBlock(context, trackChain, block, secondsPerBeat, startOf
   const eventStart = startOffset + block.startBeat * secondsPerBeat;
   const clipDuration = Math.max(0.001, block.length * secondsPerBeat);
   const eventEnd = eventStart + clipDuration;
-  const sourceDuration = sourceEnd - sourceStart;
   const warpEnabled = Boolean(block.warp?.enabled);
   const sourceBpm = clamp(
     Number.isFinite(block.warp?.sourceBpm) ? block.warp.sourceBpm : 60 / secondsPerBeat,
@@ -941,12 +941,6 @@ function scheduleSampleBlock(context, trackChain, block, secondsPerBeat, startOf
   const projectBpm = 60 / secondsPerBeat;
   const warpRate = warpEnabled ? projectBpm / sourceBpm : 1;
   const isLoop = block.mode === "loop";
-  const naturalDuration =
-    warpEnabled && block.warp?.mode === "beats"
-      ? sourceDuration / warpRate
-      : sourceDuration / (warpRate * pitchRate);
-  const stopTime = isLoop ? eventEnd : Math.min(eventEnd, eventStart + naturalDuration);
-  const blockGain = createSampleBlockGain(context, trackChain, block, eventStart, stopTime);
 
   let loopStart = sourceStart;
   let loopEnd = sourceEnd;
@@ -965,15 +959,31 @@ function scheduleSampleBlock(context, trackChain, block, secondsPerBeat, startOf
     loopEnd = block.reverse ? bufferDuration - originalLoopStart : originalLoopEnd;
   }
 
+  const activeStart = isLoop ? loopStart : sourceStart;
+  const activeEnd = isLoop ? loopEnd : sourceEnd;
+  const activeDuration = Math.max(0.001, activeEnd - activeStart);
+  const rawOffset = Number.isFinite(block.offset) ? Math.max(0, block.offset) : 0;
+  const sourceOffset = isLoop
+    ? rawOffset % activeDuration
+    : clamp(rawOffset, 0, Math.max(0, activeDuration - 0.001));
+  const remainingDuration = isLoop ? activeDuration : Math.max(0.001, activeDuration - sourceOffset);
+  const naturalDuration =
+    warpEnabled && block.warp?.mode === "beats"
+      ? remainingDuration / warpRate
+      : remainingDuration / (warpRate * pitchRate);
+  const stopTime = isLoop ? eventEnd : Math.min(eventEnd, eventStart + naturalDuration);
+  const blockGain = createSampleBlockGain(context, trackChain, block, eventStart, stopTime);
+
   if (warpEnabled && block.warp?.mode === "beats") {
     scheduleWarpedBeatGrains(context, blockGain, buffer, {
-      sourceStart: isLoop ? loopStart : sourceStart,
-      sourceEnd: isLoop ? loopEnd : sourceEnd,
+      sourceStart: activeStart,
+      sourceEnd: activeEnd,
       eventStart,
       stopTime,
       warpRate,
       pitchRate,
       loop: isLoop,
+      sourceOffset,
     });
     return;
   }
@@ -987,7 +997,7 @@ function scheduleSampleBlock(context, trackChain, block, secondsPerBeat, startOf
     source.loopEnd = loopEnd;
   }
   source.connect(blockGain);
-  source.start(eventStart, sourceStart);
+  source.start(eventStart, activeStart + sourceOffset);
   source.stop(stopTime);
 }
 

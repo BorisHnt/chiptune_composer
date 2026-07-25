@@ -243,6 +243,7 @@ async function importSampleIntoTrack(file, trackId, blockId = null) {
   block.assetId = assetId;
   block.sourceStart = 0;
   block.sourceEnd = audioBuffer.duration;
+  block.offset = 0;
   block.loopStart = 0;
   block.loopEnd = audioBuffer.duration;
   const warp = ensureSampleWarp(block);
@@ -334,11 +335,20 @@ const timeline = new Timeline({
     }
     commitChange();
   },
-  onBlockChange: (trackId, blockId, changes) => {
+  onBlockChange: (trackId, blockId, changes, meta = {}) => {
     const track = project.tracks.find((item) => item.id === trackId);
     if (!track) return;
     const block = track.blocks.find((item) => item.id === blockId);
     if (!block) return;
+    if (track.type === "sample" && meta.edge === "left") {
+      const asset = project.assets?.find((item) => item.id === block.assetId);
+      applySampleLeftTrim(
+        block,
+        changes,
+        meta.deltaBeats || 0,
+        asset?.duration || block.sourceEnd || 1,
+      );
+    }
     Object.assign(block, changes);
     if (typeof changes.length === "number" && track.type === "synth") {
       trimNotesToBlock(block);
@@ -549,6 +559,9 @@ function createSampleNumberControl(block, key, { min, max, step }) {
   input.addEventListener("change", () => {
     const parsed = parseFloat(input.value);
     block[key] = Math.min(max, Math.max(min, Number.isFinite(parsed) ? parsed : min));
+    if (["sourceStart", "sourceEnd", "loopStart", "loopEnd"].includes(key)) {
+      normalizeSampleBoundaries(block, max);
+    }
     commitChange({ reRenderEditors: false });
   });
   return input;
@@ -564,6 +577,116 @@ function getSampleRegionDuration(block, fallbackDuration) {
   const start = Number.isFinite(block.sourceStart) ? block.sourceStart : 0;
   const end = Number.isFinite(block.sourceEnd) ? block.sourceEnd : fallbackDuration;
   return Math.max(0.001, end - start);
+}
+
+function getSampleActiveRegion(block, fallbackDuration) {
+  const duration = Math.max(0.001, fallbackDuration || 0.001);
+  const sourceStart = Math.min(
+    duration - 0.001,
+    Math.max(0, Number.isFinite(block.sourceStart) ? block.sourceStart : 0),
+  );
+  const sourceEnd = Math.min(
+    duration,
+    Math.max(
+      sourceStart + 0.001,
+      Number.isFinite(block.sourceEnd) ? block.sourceEnd : duration,
+    ),
+  );
+  if (block.mode !== "loop") {
+    return { start: sourceStart, end: sourceEnd, duration: sourceEnd - sourceStart };
+  }
+  const loopStart = Math.min(
+    sourceEnd - 0.001,
+    Math.max(
+      sourceStart,
+      Number.isFinite(block.loopStart) ? block.loopStart : sourceStart,
+    ),
+  );
+  const loopEnd = Math.min(
+    sourceEnd,
+    Math.max(
+      loopStart + 0.001,
+      Number.isFinite(block.loopEnd) ? block.loopEnd : sourceEnd,
+    ),
+  );
+  return { start: loopStart, end: loopEnd, duration: loopEnd - loopStart };
+}
+
+function normalizeSampleBoundaries(block, fallbackDuration) {
+  const duration = Math.max(0.001, fallbackDuration || 0.001);
+  block.sourceStart = Math.min(
+    Math.max(0, duration - 0.001),
+    Math.max(0, Number.isFinite(block.sourceStart) ? block.sourceStart : 0),
+  );
+  block.sourceEnd = Math.min(
+    duration,
+    Math.max(
+      block.sourceStart + 0.001,
+      Number.isFinite(block.sourceEnd) ? block.sourceEnd : duration,
+    ),
+  );
+  block.loopStart = Math.min(
+    block.sourceEnd - 0.001,
+    Math.max(
+      block.sourceStart,
+      Number.isFinite(block.loopStart) ? block.loopStart : block.sourceStart,
+    ),
+  );
+  block.loopEnd = Math.min(
+    block.sourceEnd,
+    Math.max(
+      block.loopStart + 0.001,
+      Number.isFinite(block.loopEnd) ? block.loopEnd : block.sourceEnd,
+    ),
+  );
+  normalizeSampleOffset(block, duration);
+}
+
+function normalizeSampleOffset(block, fallbackDuration) {
+  const region = getSampleActiveRegion(block, fallbackDuration);
+  const rawOffset = Number.isFinite(block.offset) ? Math.max(0, block.offset) : 0;
+  if (block.mode === "loop") {
+    const wrapped = rawOffset % region.duration;
+    block.offset =
+      wrapped < 0.000001 || region.duration - wrapped < 0.000001 ? 0 : wrapped;
+  } else {
+    block.offset = Math.min(rawOffset, Math.max(0, region.duration - 0.001));
+  }
+  return block.offset;
+}
+
+function getSampleSourceRate(block) {
+  const warp = ensureSampleWarp(block);
+  const warpRate = warp.enabled
+    ? project.bpm / Math.min(400, Math.max(20, warp.sourceBpm || project.bpm))
+    : 1;
+  return warp.enabled && warp.mode === "beats"
+    ? warpRate
+    : warpRate * 2 ** ((block.pitch || 0) / 12);
+}
+
+function applySampleLeftTrim(block, changes, deltaBeats, fallbackDuration) {
+  const region = getSampleActiveRegion(block, fallbackDuration);
+  const oldOffset = normalizeSampleOffset(block, fallbackDuration);
+  const sourceRate = Math.max(0.001, getSampleSourceRate(block));
+  const sourceDelta = deltaBeats * (60 / project.bpm) * sourceRate;
+
+  if (block.mode === "loop") {
+    const wrapped = ((oldOffset + sourceDelta) % region.duration + region.duration) %
+      region.duration;
+    block.offset =
+      wrapped < 0.000001 || region.duration - wrapped < 0.000001 ? 0 : wrapped;
+    return;
+  }
+
+  const nextOffset = Math.min(
+    Math.max(0, region.duration - 0.001),
+    Math.max(0, oldOffset + sourceDelta),
+  );
+  const actualDeltaBeats = ((nextOffset - oldOffset) / sourceRate) * (project.bpm / 60);
+  changes.startBeat = block.startBeat + actualDeltaBeats;
+  changes.length = Math.max(snap, block.length - actualDeltaBeats);
+  block.offset = nextOffset;
 }
 
 function drawSampleWaveform(canvas, asset, block) {
@@ -587,20 +710,156 @@ function drawSampleWaveform(canvas, asset, block) {
   context.stroke();
 
   const duration = Math.max(0.001, asset?.duration || 0.001);
-  const sourceStart = (block.sourceStart / duration) * width;
-  const sourceEnd = ((block.sourceEnd ?? duration) / duration) * width;
+  const sourceStartTime = Math.max(0, block.sourceStart || 0);
+  const sourceEndTime = Math.min(duration, block.sourceEnd ?? duration);
+  const sourceStart = (sourceStartTime / duration) * width;
+  const sourceEnd = (sourceEndTime / duration) * width;
   context.fillStyle = "rgba(8, 12, 15, 0.58)";
   context.fillRect(0, 0, sourceStart, height);
   context.fillRect(sourceEnd, 0, width - sourceEnd, height);
 
   if (block.mode === "loop") {
-    const loopStart = ((block.loopStart ?? block.sourceStart) / duration) * width;
-    const loopEnd = ((block.loopEnd ?? block.sourceEnd ?? duration) / duration) * width;
+    const loopStart = ((block.loopStart ?? sourceStartTime) / duration) * width;
+    const loopEnd = ((block.loopEnd ?? sourceEndTime) / duration) * width;
     context.fillStyle = "rgba(244, 184, 73, 0.2)";
     context.fillRect(loopStart, 0, loopEnd - loopStart, height);
     context.strokeStyle = "#f4b849";
     context.strokeRect(loopStart, 1, loopEnd - loopStart, height - 2);
   }
+
+  const drawBoundary = (time, color, fromTop) => {
+    const x = (time / duration) * width;
+    context.strokeStyle = color;
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(x, 0);
+    context.lineTo(x, height);
+    context.stroke();
+    context.fillStyle = color;
+    context.beginPath();
+    if (fromTop) {
+      context.moveTo(x - 5, 0);
+      context.lineTo(x + 5, 0);
+      context.lineTo(x, 7);
+    } else {
+      context.moveTo(x - 5, height);
+      context.lineTo(x + 5, height);
+      context.lineTo(x, height - 7);
+    }
+    context.closePath();
+    context.fill();
+  };
+
+  drawBoundary(sourceStartTime, "#dbe8e7", true);
+  drawBoundary(sourceEndTime, "#dbe8e7", true);
+  if (block.mode === "loop") {
+    drawBoundary(block.loopStart ?? sourceStartTime, "#f4b849", false);
+    drawBoundary(block.loopEnd ?? sourceEndTime, "#f4b849", false);
+  }
+
+  const region = getSampleActiveRegion(block, duration);
+  const offset = normalizeSampleOffset(block, duration);
+  const offsetTime = block.reverse ? region.end - offset : region.start + offset;
+  const offsetX = (offsetTime / duration) * width;
+  context.strokeStyle = "#ff7668";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(offsetX, 0);
+  context.lineTo(offsetX, height);
+  context.stroke();
+  context.fillStyle = "#ff7668";
+  context.beginPath();
+  context.arc(offsetX, height / 2, 4, 0, Math.PI * 2);
+  context.fill();
+}
+
+function attachSampleWaveformHandlers(canvas, asset, block) {
+  const duration = Math.max(0.001, asset?.duration || block.sourceEnd || 1);
+  let activeMarker = null;
+  let pointerId = null;
+
+  const eventTime = (event) => {
+    const rect = canvas.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    return ratio * duration;
+  };
+
+  const markerList = () => {
+    const region = getSampleActiveRegion(block, duration);
+    const offset = normalizeSampleOffset(block, duration);
+    const markers = [
+      { type: "sourceStart", time: block.sourceStart || 0, y: 0 },
+      { type: "sourceEnd", time: block.sourceEnd ?? duration, y: 0 },
+      {
+        type: "offset",
+        time: block.reverse ? region.end - offset : region.start + offset,
+        y: canvas.height / 2,
+      },
+    ];
+    if (block.mode === "loop") {
+      markers.push(
+        { type: "loopStart", time: block.loopStart ?? region.start, y: canvas.height },
+        { type: "loopEnd", time: block.loopEnd ?? region.end, y: canvas.height },
+      );
+    }
+    return markers;
+  };
+
+  const updateMarker = (time) => {
+    const sourceStart = Math.max(0, block.sourceStart || 0);
+    const sourceEnd = Math.min(duration, block.sourceEnd ?? duration);
+    if (activeMarker === "sourceStart") {
+      block.sourceStart = Math.min(sourceEnd - 0.001, Math.max(0, time));
+      block.loopStart = Math.max(block.sourceStart, block.loopStart ?? block.sourceStart);
+    } else if (activeMarker === "sourceEnd") {
+      block.sourceEnd = Math.max(sourceStart + 0.001, Math.min(duration, time));
+      block.loopEnd = Math.min(block.sourceEnd, block.loopEnd ?? block.sourceEnd);
+    } else if (activeMarker === "loopStart") {
+      const loopEnd = Math.min(sourceEnd, block.loopEnd ?? sourceEnd);
+      block.loopStart = Math.min(loopEnd - 0.001, Math.max(sourceStart, time));
+    } else if (activeMarker === "loopEnd") {
+      const loopStart = Math.max(sourceStart, block.loopStart ?? sourceStart);
+      block.loopEnd = Math.max(loopStart + 0.001, Math.min(sourceEnd, time));
+    } else {
+      const region = getSampleActiveRegion(block, duration);
+      block.offset = block.reverse ? region.end - time : time - region.start;
+    }
+    normalizeSampleBoundaries(block, duration);
+    drawSampleWaveform(canvas, asset, block);
+  };
+
+  const finishDrag = (event) => {
+    if (pointerId === null || (event.pointerId !== undefined && event.pointerId !== pointerId)) return;
+    activeMarker = null;
+    pointerId = null;
+    commitChange({ reRenderEditors: false });
+  };
+
+  canvas.title = "Drag the markers to edit start, end, loop and playback offset";
+  canvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
+    const markers = markerList()
+      .map((marker) => ({
+        ...marker,
+        score: Math.abs((marker.time / duration) * rect.width - x) +
+          Math.abs(marker.y - y) * 0.18,
+      }))
+      .sort((a, b) => a.score - b.score);
+    activeMarker = markers[0]?.score <= 24 ? markers[0].type : "offset";
+    pointerId = event.pointerId;
+    canvas.setPointerCapture(pointerId);
+    updateMarker(eventTime(event));
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== pointerId || !activeMarker) return;
+    updateMarker(eventTime(event));
+  });
+  canvas.addEventListener("pointerup", finishDrag);
+  canvas.addEventListener("pointercancel", finishDrag);
 }
 
 function renderSampleDevice(track) {
@@ -682,6 +941,7 @@ function renderSampleDevice(track) {
     button.setAttribute("aria-pressed", block.mode === value ? "true" : "false");
     button.addEventListener("click", () => {
       block.mode = value;
+      normalizeSampleOffset(block, asset?.duration || block.sourceEnd || 1);
       commitChange({ reRenderEditors: false });
     });
     mode.appendChild(button);
@@ -689,6 +949,7 @@ function renderSampleDevice(track) {
   controls.appendChild(createDeviceField("Mode", mode));
 
   const duration = Math.max(0.001, asset?.duration || block.sourceEnd || 1);
+  normalizeSampleBoundaries(block, duration);
   const warpToggle = document.createElement("button");
   warpToggle.type = "button";
   warpToggle.className = "btn tiny toggle";
@@ -801,6 +1062,16 @@ function renderSampleDevice(track) {
   );
   controls.appendChild(
     createDeviceField(
+      "Offset",
+      createSampleNumberControl(block, "offset", {
+        min: 0,
+        max: Math.max(0, getSampleActiveRegion(block, duration).duration - 0.001),
+        step: 0.01,
+      }),
+    ),
+  );
+  controls.appendChild(
+    createDeviceField(
       "Start",
       createSampleNumberControl(block, "sourceStart", { min: 0, max: duration, step: 0.01 }),
     ),
@@ -859,6 +1130,7 @@ function renderSampleDevice(track) {
   sampleBox.appendChild(controls);
   ui.deviceContent.appendChild(sampleBox);
   drawSampleWaveform(waveform, asset, block);
+  attachSampleWaveformHandlers(waveform, asset, block);
 }
 
 function createAdsrSlider(track, key, labelText, min, max, step) {

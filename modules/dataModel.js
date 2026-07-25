@@ -162,6 +162,7 @@ export function createBlock({ startBeat = 0, length = 4, type = "synth" } = {}) 
       mode: "one-shot",
       sourceStart: 0,
       sourceEnd: null,
+      offset: 0,
       loopStart: 0,
       loopEnd: null,
       gain: 1,
@@ -309,6 +310,7 @@ function normalizeBlocks(blocks, type, drumRows) {
       normalized.sourceEnd = Number.isFinite(safe.sourceEnd)
         ? Math.max(normalized.sourceStart, safe.sourceEnd)
         : null;
+      normalized.offset = Number.isFinite(safe.offset) ? Math.max(0, safe.offset) : 0;
       normalized.loopStart = Number.isFinite(safe.loopStart) ? Math.max(0, safe.loopStart) : 0;
       normalized.loopEnd = Number.isFinite(safe.loopEnd)
         ? Math.max(normalized.loopStart, safe.loopEnd)

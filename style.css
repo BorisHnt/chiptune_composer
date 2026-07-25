@@ -421,14 +421,29 @@ main {
 
 .block-resize {
   position: absolute;
-  right: 0;
   top: 0;
   bottom: 0;
   width: 8px;
   cursor: ew-resize;
   background: rgba(70, 66, 94, 0.08);
+  z-index: 3;
+  touch-action: none;
+}
+
+.block-resize-right {
+  right: 0;
   border-left: var(--border-soft);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.block-resize-left {
+  left: 0;
+  border-right: var(--border-soft);
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.block-resize:hover {
+  background: rgba(255, 118, 104, 0.42);
 }
 
 .block-waveform {
@@ -658,6 +673,8 @@ main {
   height: 116px;
   display: block;
   border-right: var(--border-soft);
+  cursor: ew-resize;
+  touch-action: none;
 }
 
 .sample-device-controls {
