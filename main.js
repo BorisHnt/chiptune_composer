@@ -924,6 +924,8 @@ function attachSampleWaveformHandlers(canvas, asset, block) {
 
 const SAMPLE_MARKER_ZOOM_LEVELS = [48, 72, 96, 144, 216, 320];
 const clampValue = (value, min, max) => Math.min(Math.max(value, min), max);
+const MAX_WAVEFORM_CANVAS_DIMENSION = 32760;
+const MAX_WAVEFORM_CANVAS_PIXELS = 16 * 1024 * 1024;
 const waveformAnalysisCache = new WeakMap();
 let sampleMarkerBaseCache = null;
 
@@ -1078,7 +1080,18 @@ function updateSampleMarkerControls() {
 }
 
 function prepareWaveformCanvas(canvas, width, height, cssWidth = width, cssHeight = height) {
-  const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+  const requestedRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+  const dimensionRatio = Math.min(
+    MAX_WAVEFORM_CANVAS_DIMENSION / Math.max(1, width),
+    MAX_WAVEFORM_CANVAS_DIMENSION / Math.max(1, height),
+  );
+  const areaRatio = Math.sqrt(
+    MAX_WAVEFORM_CANVAS_PIXELS / Math.max(1, width * height),
+  );
+  const pixelRatio = Math.max(
+    0.25,
+    Math.min(requestedRatio, dimensionRatio, areaRatio),
+  );
   const backingWidth = Math.max(1, Math.round(width * pixelRatio));
   const backingHeight = Math.max(1, Math.round(height * pixelRatio));
   if (canvas.width !== backingWidth) canvas.width = backingWidth;
