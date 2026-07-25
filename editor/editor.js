@@ -14,6 +14,8 @@ const ui = {
   audioInput: document.getElementById("audioInput"),
   fileName: document.getElementById("fileName"),
   fileMeta: document.getElementById("fileMeta"),
+  waveformViewBtn: document.getElementById("waveformViewBtn"),
+  spectralViewBtn: document.getElementById("spectralViewBtn"),
   cursorTime: document.getElementById("cursorTime"),
   selectionDuration: document.getElementById("selectionDuration"),
   overviewCanvas: document.getElementById("overviewCanvas"),
@@ -57,6 +59,10 @@ const EDIT_BUTTONS = [
 const MAX_HISTORY_BYTES = 192 * 1024 * 1024;
 const MAX_CANVAS_WIDTH = 16000;
 const BASE_PIXELS_PER_SECOND = 140;
+const SPECTROGRAM_FFT_SIZE = 1024;
+const SPECTROGRAM_HEIGHT = 256;
+const SPECTROGRAM_MIN_FREQUENCY = 30;
+const SPECTROGRAM_MAX_COLUMNS = 2048;
 
 let audioContext = null;
 let audioBuffer = null;
@@ -65,6 +71,10 @@ let selection = { start: 0, end: 0, active: false };
 let cursorTime = 0;
 let zoom = 1;
 let displayWidth = 1;
+let viewMode = "waveform";
+let spectrogramCache = null;
+let spectrogramJobBuffer = null;
+let spectrogramGeneration = 0;
 let dragAnchor = null;
 let audioSource = null;
 let playStartedAt = 0;
@@ -167,6 +177,8 @@ function updateInterface() {
     ui.selectAllBtn,
     ui.clearSelectionBtn,
     ui.exportAllBtn,
+    ui.waveformViewBtn,
+    ui.spectralViewBtn,
   ].forEach((control) => {
     control.disabled = !loaded;
   });
@@ -179,6 +191,8 @@ function updateInterface() {
   });
   ui.undoBtn.disabled = historyIndex <= 0;
   ui.redoBtn.disabled = historyIndex < 0 || historyIndex >= history.length - 1;
+  ui.waveformViewBtn.setAttribute("aria-pressed", viewMode === "waveform" ? "true" : "false");
+  ui.spectralViewBtn.setAttribute("aria-pressed", viewMode === "spectral" ? "true" : "false");
 
   ui.emptyState.classList.toggle("hidden", loaded);
   ui.selectionStartInput.disabled = !loaded;
@@ -239,6 +253,237 @@ function drawChannelWaveform(context, channelData, width, top, height, color) {
   context.stroke();
 }
 
+function runFft(real, imaginary) {
+  const size = real.length;
+  for (let index = 1, reversed = 0; index < size; index += 1) {
+    let bit = size >> 1;
+    while (reversed & bit) {
+      reversed ^= bit;
+      bit >>= 1;
+    }
+    reversed ^= bit;
+    if (index >= reversed) continue;
+    [real[index], real[reversed]] = [real[reversed], real[index]];
+    [imaginary[index], imaginary[reversed]] = [imaginary[reversed], imaginary[index]];
+  }
+
+  for (let length = 2; length <= size; length <<= 1) {
+    const angle = (-2 * Math.PI) / length;
+    const baseReal = Math.cos(angle);
+    const baseImaginary = Math.sin(angle);
+    for (let offset = 0; offset < size; offset += length) {
+      let rotationReal = 1;
+      let rotationImaginary = 0;
+      const half = length >> 1;
+      for (let index = 0; index < half; index += 1) {
+        const even = offset + index;
+        const odd = even + half;
+        const oddReal =
+          real[odd] * rotationReal - imaginary[odd] * rotationImaginary;
+        const oddImaginary =
+          real[odd] * rotationImaginary + imaginary[odd] * rotationReal;
+        real[odd] = real[even] - oddReal;
+        imaginary[odd] = imaginary[even] - oddImaginary;
+        real[even] += oddReal;
+        imaginary[even] += oddImaginary;
+        const nextRotationReal =
+          rotationReal * baseReal - rotationImaginary * baseImaginary;
+        rotationImaginary =
+          rotationReal * baseImaginary + rotationImaginary * baseReal;
+        rotationReal = nextRotationReal;
+      }
+    }
+  }
+}
+
+function getSpectralColor(level) {
+  const stops = [
+    [0, 12, 19, 25],
+    [0.28, 10, 82, 91],
+    [0.54, 35, 177, 168],
+    [0.76, 244, 184, 73],
+    [0.9, 233, 104, 104],
+    [1, 255, 241, 205],
+  ];
+  const safeLevel = clamp(level, 0, 1);
+  let upperIndex = 1;
+  while (upperIndex < stops.length - 1 && safeLevel > stops[upperIndex][0]) {
+    upperIndex += 1;
+  }
+  const lower = stops[upperIndex - 1];
+  const upper = stops[upperIndex];
+  const mix = (safeLevel - lower[0]) / Math.max(0.0001, upper[0] - lower[0]);
+  return [
+    Math.round(lower[1] + (upper[1] - lower[1]) * mix),
+    Math.round(lower[2] + (upper[2] - lower[2]) * mix),
+    Math.round(lower[3] + (upper[3] - lower[3]) * mix),
+  ];
+}
+
+function createSpectrogramImage(magnitudes, columns, bins, sampleRate) {
+  const canvas = document.createElement("canvas");
+  canvas.width = columns;
+  canvas.height = SPECTROGRAM_HEIGHT;
+  const context = canvas.getContext("2d");
+  const image = context.createImageData(columns, SPECTROGRAM_HEIGHT);
+  const nyquist = sampleRate / 2;
+  const maxFrequency = Math.min(20000, nyquist);
+  const minFrequency = Math.min(SPECTROGRAM_MIN_FREQUENCY, maxFrequency / 2);
+  const logRange = Math.log(maxFrequency / minFrequency);
+
+  for (let y = 0; y < SPECTROGRAM_HEIGHT; y += 1) {
+    const position = y / Math.max(1, SPECTROGRAM_HEIGHT - 1);
+    const frequency = maxFrequency / Math.exp(position * logRange);
+    const rawBin = (frequency / nyquist) * (bins - 1);
+    const lowerBin = Math.floor(rawBin);
+    const upperBin = Math.min(bins - 1, lowerBin + 1);
+    const binMix = rawBin - lowerBin;
+    for (let x = 0; x < columns; x += 1) {
+      const lower = magnitudes[x * bins + lowerBin];
+      const upper = magnitudes[x * bins + upperBin];
+      const level = (lower + (upper - lower) * binMix) / 255;
+      const [red, green, blue] = getSpectralColor(level);
+      const pixel = (y * columns + x) * 4;
+      image.data[pixel] = red;
+      image.data[pixel + 1] = green;
+      image.data[pixel + 2] = blue;
+      image.data[pixel + 3] = 255;
+    }
+  }
+  context.putImageData(image, 0, 0);
+  return { canvas, minFrequency, maxFrequency };
+}
+
+async function calculateSpectrogram(buffer, generation) {
+  const fftSize = SPECTROGRAM_FFT_SIZE;
+  const bins = fftSize / 2 + 1;
+  const columns = Math.min(
+    SPECTROGRAM_MAX_COLUMNS,
+    Math.max(256, Math.ceil(buffer.duration * 72)),
+  );
+  const magnitudes = new Uint8Array(columns * bins);
+  const real = new Float32Array(fftSize);
+  const imaginary = new Float32Array(fftSize);
+  const windowValues = Float32Array.from(
+    { length: fftSize },
+    (_, index) => 0.5 - 0.5 * Math.cos((2 * Math.PI * index) / (fftSize - 1)),
+  );
+  const channels = Array.from(
+    { length: buffer.numberOfChannels },
+    (_, channel) => buffer.getChannelData(channel),
+  );
+  const centerStep = Math.max(1, (buffer.length - 1) / Math.max(1, columns - 1));
+  const normalization = fftSize / 4;
+
+  for (let column = 0; column < columns; column += 1) {
+    if (generation !== spectrogramGeneration || buffer !== audioBuffer) return null;
+    const center = Math.round(column * centerStep);
+    const start = center - fftSize / 2;
+    real.fill(0);
+    imaginary.fill(0);
+    for (let index = 0; index < fftSize; index += 1) {
+      const sampleIndex = start + index;
+      if (sampleIndex < 0 || sampleIndex >= buffer.length) continue;
+      let value = 0;
+      channels.forEach((channel) => {
+        value += channel[sampleIndex];
+      });
+      real[index] = (value / channels.length) * windowValues[index];
+    }
+    runFft(real, imaginary);
+    const destination = column * bins;
+    for (let bin = 0; bin < bins; bin += 1) {
+      const magnitude = Math.hypot(real[bin], imaginary[bin]) / normalization;
+      const decibels = 20 * Math.log10(magnitude + 0.00000001);
+      const level = clamp((decibels + 100) / 90, 0, 1);
+      magnitudes[destination + bin] = Math.round(level * 255);
+    }
+    if (column % 12 === 11) {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+  }
+
+  const image = createSpectrogramImage(magnitudes, columns, bins, buffer.sampleRate);
+  return { buffer, columns, bins, ...image };
+}
+
+function requestSpectrogram() {
+  if (!audioBuffer || spectrogramCache?.buffer === audioBuffer) return;
+  if (spectrogramJobBuffer === audioBuffer) return;
+  const buffer = audioBuffer;
+  const generation = ++spectrogramGeneration;
+  spectrogramJobBuffer = buffer;
+  setStatus("Calculating spectral view…");
+  calculateSpectrogram(buffer, generation)
+    .then((result) => {
+      if (!result || buffer !== audioBuffer || generation !== spectrogramGeneration) return;
+      spectrogramCache = result;
+      if (viewMode === "spectral") {
+        setStatus("Spectral view ready");
+        renderWaveform();
+      }
+    })
+    .catch((error) => {
+      console.error("Spectrogram calculation failed", error);
+      setStatus(`Spectral view failed: ${error.message}`);
+    })
+    .finally(() => {
+      if (spectrogramJobBuffer === buffer) spectrogramJobBuffer = null;
+    });
+}
+
+function invalidateSpectrogram() {
+  spectrogramGeneration += 1;
+  spectrogramCache = null;
+  spectrogramJobBuffer = null;
+}
+
+function drawFrequencyGrid(context, width, top, height, minFrequency, maxFrequency) {
+  const frequencies = [50, 100, 250, 500, 1000, 2500, 5000, 10000, 20000];
+  const logRange = Math.log(maxFrequency / minFrequency);
+  context.font = "10px SFMono-Regular, Consolas, monospace";
+  context.textBaseline = "bottom";
+  frequencies.forEach((frequency) => {
+    if (frequency < minFrequency || frequency > maxFrequency) return;
+    const position = Math.log(maxFrequency / frequency) / logRange;
+    const y = top + position * height;
+    context.strokeStyle = "rgba(220, 232, 232, 0.16)";
+    context.beginPath();
+    context.moveTo(0, y + 0.5);
+    context.lineTo(width, y + 0.5);
+    context.stroke();
+    context.fillStyle = "rgba(235, 242, 241, 0.78)";
+    const label = frequency >= 1000 ? `${frequency / 1000}k` : `${frequency}`;
+    context.fillText(label, 5, y - 2);
+  });
+}
+
+function drawSpectrogram(context, width, top, height) {
+  context.fillStyle = "#0c1319";
+  context.fillRect(0, top, width, height);
+  if (spectrogramCache?.buffer !== audioBuffer) {
+    requestSpectrogram();
+    context.fillStyle = "#b8c2c9";
+    context.font = "12px SFMono-Regular, Consolas, monospace";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText("Calculating spectral view…", width / 2, top + height / 2);
+    context.textAlign = "start";
+    return;
+  }
+
+  context.imageSmoothingEnabled = true;
+  context.drawImage(spectrogramCache.canvas, 0, top, width, height);
+  drawFrequencyGrid(
+    context,
+    width,
+    top,
+    height,
+    spectrogramCache.minFrequency,
+    spectrogramCache.maxFrequency,
+  );
+}
+
 function drawRuler(context, width, height) {
   if (!audioBuffer) return;
   const pixelsPerSecond = width / audioBuffer.duration;
@@ -293,25 +538,35 @@ function renderWaveform() {
 
   const rulerHeight = 28;
   drawRuler(context, displayWidth, rulerHeight);
-  const channelHeight = (viewportHeight - rulerHeight) / audioBuffer.numberOfChannels;
-
-  for (let channel = 0; channel < audioBuffer.numberOfChannels; channel += 1) {
-    const top = rulerHeight + channel * channelHeight;
-    context.fillStyle = channel % 2 ? "#1a242b" : "#172027";
-    context.fillRect(0, top, displayWidth, channelHeight);
-    context.strokeStyle = "#33424c";
-    context.beginPath();
-    context.moveTo(0, top + channelHeight / 2 + 0.5);
-    context.lineTo(displayWidth, top + channelHeight / 2 + 0.5);
-    context.stroke();
-    drawChannelWaveform(
+  if (viewMode === "spectral") {
+    ui.waveCanvas.setAttribute("aria-label", "Editable audio spectrogram");
+    drawSpectrogram(
       context,
-      audioBuffer.getChannelData(channel),
       displayWidth,
-      top,
-      channelHeight,
-      channel === 0 ? "#58c7c2" : "#b6e4df",
+      rulerHeight,
+      viewportHeight - rulerHeight,
     );
+  } else {
+    ui.waveCanvas.setAttribute("aria-label", "Editable audio waveform");
+    const channelHeight = (viewportHeight - rulerHeight) / audioBuffer.numberOfChannels;
+    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel += 1) {
+      const top = rulerHeight + channel * channelHeight;
+      context.fillStyle = channel % 2 ? "#1a242b" : "#172027";
+      context.fillRect(0, top, displayWidth, channelHeight);
+      context.strokeStyle = "#33424c";
+      context.beginPath();
+      context.moveTo(0, top + channelHeight / 2 + 0.5);
+      context.lineTo(displayWidth, top + channelHeight / 2 + 0.5);
+      context.stroke();
+      drawChannelWaveform(
+        context,
+        audioBuffer.getChannelData(channel),
+        displayWidth,
+        top,
+        channelHeight,
+        channel === 0 ? "#58c7c2" : "#b6e4df",
+      );
+    }
   }
 
   slices.forEach((slice, index) => {
@@ -438,6 +693,7 @@ function syncSlicesToCurrentHistory() {
 
 function restoreSnapshot(snapshot) {
   stopPlayback();
+  invalidateSpectrogram();
   audioBuffer = createBufferFromChannels(snapshot.channels, snapshot.sampleRate);
   selection = { ...snapshot.selection };
   slices = snapshot.slices.map((slice) => ({ ...slice }));
@@ -467,6 +723,7 @@ function getSampleIndexes(range) {
 
 function replaceAudio(channels, nextSelection, { clearSlices = false, status } = {}) {
   stopPlayback();
+  invalidateSpectrogram();
   audioBuffer = createBufferFromChannels(channels, audioBuffer.sampleRate);
   selection = {
     start: clamp(nextSelection.start, 0, audioBuffer.duration),
@@ -825,6 +1082,19 @@ function renderAll() {
   updateInterface();
 }
 
+function setViewMode(mode) {
+  const nextMode = mode === "spectral" ? "spectral" : "waveform";
+  if (viewMode === nextMode) return;
+  viewMode = nextMode;
+  updateInterface();
+  renderWaveform();
+  if (viewMode === "waveform") {
+    setStatus("Waveform view");
+  } else if (spectrogramCache?.buffer === audioBuffer) {
+    setStatus("Spectral view ready");
+  }
+}
+
 async function importAudio(file) {
   if (!file) return;
   stopPlayback();
@@ -833,6 +1103,7 @@ async function importAudio(file) {
     const context = ensureAudioContext();
     const data = await file.arrayBuffer();
     const decoded = await context.decodeAudioData(data.slice(0));
+    invalidateSpectrogram();
     audioBuffer = decoded;
     importedFileName = file.name || "audio";
     const baseName = importedFileName.replace(/\.[^.]+$/, "");
@@ -933,6 +1204,8 @@ ui.loopBtn.addEventListener("click", () => {
 
 ui.undoBtn.addEventListener("click", undo);
 ui.redoBtn.addEventListener("click", redo);
+ui.waveformViewBtn.addEventListener("click", () => setViewMode("waveform"));
+ui.spectralViewBtn.addEventListener("click", () => setViewMode("spectral"));
 ui.zoomSlider.addEventListener("input", () => {
   zoom = parseFloat(ui.zoomSlider.value);
   renderWaveform();

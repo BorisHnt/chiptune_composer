@@ -203,6 +203,36 @@ input:disabled {
   white-space: nowrap;
 }
 
+.view-switch {
+  height: 30px;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.view-mode-button {
+  min-width: 76px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  padding: 3px 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.view-mode-button:last-child {
+  border-right: 0;
+}
+
+.view-mode-button[aria-pressed="true"] {
+  background: var(--teal);
+  color: white;
+}
+
 .time-readout {
   display: grid;
   grid-template-columns: auto 92px auto 92px;
@@ -535,14 +565,24 @@ input:disabled {
   }
 
   .wave-section {
-    grid-template-rows: 64px 72px minmax(220px, 1fr) 84px;
+    grid-template-rows: auto 72px minmax(220px, 1fr) 84px;
   }
 
   .wave-header {
     align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .file-identity {
+    flex: 1 1 160px;
+  }
+
+  .view-switch {
+    flex: 0 0 auto;
   }
 
   .time-readout {
+    width: 100%;
     grid-template-columns: auto 88px;
   }
 

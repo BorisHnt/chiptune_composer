@@ -70,6 +70,22 @@
               <strong id="fileName">No audio loaded</strong>
               <span id="fileMeta">—</span>
             </div>
+            <div class="view-switch" role="group" aria-label="Audio display mode">
+              <button
+                id="waveformViewBtn"
+                class="view-mode-button"
+                type="button"
+                aria-pressed="true"
+                disabled
+              >Waveform</button>
+              <button
+                id="spectralViewBtn"
+                class="view-mode-button"
+                type="button"
+                aria-pressed="false"
+                disabled
+              >Spectral</button>
+            </div>
             <div class="time-readout">
               <span>Cursor</span>
               <output id="cursorTime">00:00.000</output>
