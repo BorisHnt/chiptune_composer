@@ -211,8 +211,17 @@ main {
 }
 
 .track-list {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
   background: rgba(255, 255, 255, 0.8);
   border-right: var(--border-thin);
+}
+
+.track-list::-webkit-scrollbar {
+  display: none;
 }
 
 .track-header {
@@ -306,6 +315,8 @@ main {
 }
 
 .lane-wrap {
+  min-width: 0;
+  min-height: 0;
   position: relative;
   overflow: hidden;
 }
@@ -313,6 +324,7 @@ main {
 .lane-scroller {
   position: relative;
   overflow: auto;
+  overscroll-behavior: contain;
   height: 100%;
 }
 
@@ -664,6 +676,21 @@ main {
   display: flex;
   flex-wrap: nowrap;
   min-width: max-content;
+}
+
+.warp-bpm-control {
+  min-width: max-content;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.warp-bpm-control input[type="number"] {
+  width: 62px;
+}
+
+.sample-device-controls .warp-source-field {
+  grid-column: span 2;
 }
 
 .sample-missing {

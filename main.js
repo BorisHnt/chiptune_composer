@@ -22,6 +22,8 @@ import {
   CHIP_DRUM_PARAMETER_KEYS,
   ensureChipDrumPads,
   resetChipDrumPad,
+  ensureSampleWarp,
+  SAMPLE_WARP_BAR_OPTIONS,
 } from "./modules/dataModel.js";
 import { AudioEngine } from "./modules/audioEngine.js";
 import { Timeline } from "./modules/timeline.js";
@@ -243,6 +245,15 @@ async function importSampleIntoTrack(file, trackId, blockId = null) {
   block.sourceEnd = audioBuffer.duration;
   block.loopStart = 0;
   block.loopEnd = audioBuffer.duration;
+  const warp = ensureSampleWarp(block);
+  const rawBars = (audioBuffer.duration * project.bpm) / 240;
+  warp.bars = SAMPLE_WARP_BAR_OPTIONS.reduce((closest, value) =>
+    Math.abs(value - rawBars) < Math.abs(closest - rawBars) ? value : closest,
+  );
+  warp.sourceBpm = Math.min(
+    400,
+    Math.max(20, (warp.bars * 4 * 60) / audioBuffer.duration),
+  );
   selectedSampleBlockByTrack.set(track.id, block.id);
   selectedTrackId = track.id;
   commitChange();
@@ -543,6 +554,18 @@ function createSampleNumberControl(block, key, { min, max, step }) {
   return input;
 }
 
+function getClosestWarpBars(value) {
+  return SAMPLE_WARP_BAR_OPTIONS.reduce((closest, option) =>
+    Math.abs(option - value) < Math.abs(closest - value) ? option : closest,
+  );
+}
+
+function getSampleRegionDuration(block, fallbackDuration) {
+  const start = Number.isFinite(block.sourceStart) ? block.sourceStart : 0;
+  const end = Number.isFinite(block.sourceEnd) ? block.sourceEnd : fallbackDuration;
+  return Math.max(0.001, end - start);
+}
+
 function drawSampleWaveform(canvas, asset, block) {
   const context = canvas.getContext("2d");
   const width = canvas.width;
@@ -587,6 +610,7 @@ function renderSampleDevice(track) {
 
   const block = getSelectedSampleBlock(track);
   const asset = project.assets?.find((item) => item.id === block?.assetId);
+  const warp = block ? ensureSampleWarp(block) : null;
   const sampleBox = document.createElement("div");
   sampleBox.className = "sample-device";
 
@@ -598,7 +622,7 @@ function renderSampleDevice(track) {
   title.textContent = asset?.name || "Sample Player";
   const detail = document.createElement("span");
   detail.textContent = block
-    ? `${block.mode === "loop" ? "Loop" : "One Shot"} · ${asset?.duration?.toFixed(2) || "0.00"} s`
+    ? `${warp.enabled ? `Warp ${warp.mode === "beats" ? "Beats" : "Repitch"} · ${warp.sourceBpm.toFixed(1)} BPM` : block.mode === "loop" ? "Loop" : "One Shot"} · ${asset?.duration?.toFixed(2) || "0.00"} s`
     : "No audio clip";
   heading.append(title, detail);
 
@@ -665,6 +689,104 @@ function renderSampleDevice(track) {
   controls.appendChild(createDeviceField("Mode", mode));
 
   const duration = Math.max(0.001, asset?.duration || block.sourceEnd || 1);
+  const warpToggle = document.createElement("button");
+  warpToggle.type = "button";
+  warpToggle.className = "btn tiny toggle";
+  warpToggle.textContent = "Warp";
+  warpToggle.setAttribute("aria-pressed", warp.enabled ? "true" : "false");
+  warpToggle.addEventListener("click", () => {
+    if (!warp.enabled) {
+      warp.bars = getClosestWarpBars(block.length / 4);
+      const regionDuration = getSampleRegionDuration(block, duration);
+      warp.sourceBpm = Math.min(
+        400,
+        Math.max(20, (warp.bars * 4 * 60) / regionDuration),
+      );
+      block.length = warp.bars * 4;
+    }
+    warp.enabled = !warp.enabled;
+    commitChange({ reRenderEditors: false });
+  });
+  controls.appendChild(createDeviceField("Sync", warpToggle));
+
+  if (warp.enabled) {
+    const warpMode = document.createElement("div");
+    warpMode.className = "sample-mode";
+    [
+      { value: "repitch", label: "Repitch" },
+      { value: "beats", label: "Beats" },
+    ].forEach(({ value, label }) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn tiny toggle";
+      button.textContent = label;
+      button.setAttribute("aria-pressed", warp.mode === value ? "true" : "false");
+      button.addEventListener("click", () => {
+        warp.mode = value;
+        commitChange({ reRenderEditors: false });
+      });
+      warpMode.appendChild(button);
+    });
+    controls.appendChild(createDeviceField("Warp", warpMode));
+
+    const sourceBpm = document.createElement("div");
+    sourceBpm.className = "warp-bpm-control";
+    const bpmInput = document.createElement("input");
+    bpmInput.type = "number";
+    bpmInput.min = 20;
+    bpmInput.max = 400;
+    bpmInput.step = 0.1;
+    bpmInput.value = warp.sourceBpm.toFixed(1);
+    bpmInput.setAttribute("aria-label", "Source BPM");
+    bpmInput.addEventListener("change", () => {
+      const value = parseFloat(bpmInput.value);
+      warp.sourceBpm = Math.min(400, Math.max(20, Number.isFinite(value) ? value : 120));
+      commitChange({ reRenderEditors: false });
+    });
+    const halfButton = document.createElement("button");
+    halfButton.type = "button";
+    halfButton.className = "btn tiny";
+    halfButton.textContent = "÷2";
+    halfButton.title = "Halve source BPM";
+    halfButton.addEventListener("click", () => {
+      warp.sourceBpm = Math.max(20, warp.sourceBpm / 2);
+      commitChange({ reRenderEditors: false });
+    });
+    const doubleButton = document.createElement("button");
+    doubleButton.type = "button";
+    doubleButton.className = "btn tiny";
+    doubleButton.textContent = "×2";
+    doubleButton.title = "Double source BPM";
+    doubleButton.addEventListener("click", () => {
+      warp.sourceBpm = Math.min(400, warp.sourceBpm * 2);
+      commitChange({ reRenderEditors: false });
+    });
+    sourceBpm.append(bpmInput, halfButton, doubleButton);
+    const sourceField = createDeviceField("Source", sourceBpm);
+    sourceField.classList.add("warp-source-field");
+    controls.appendChild(sourceField);
+
+    const barsSelect = document.createElement("select");
+    SAMPLE_WARP_BAR_OPTIONS.forEach((bars) => {
+      const option = document.createElement("option");
+      option.value = bars;
+      option.textContent = bars < 1 ? `${bars * 4} beat${bars * 4 === 1 ? "" : "s"}` : `${bars} bar${bars === 1 ? "" : "s"}`;
+      option.selected = bars === warp.bars;
+      barsSelect.appendChild(option);
+    });
+    barsSelect.addEventListener("change", () => {
+      warp.bars = parseFloat(barsSelect.value);
+      const regionDuration = getSampleRegionDuration(block, duration);
+      warp.sourceBpm = Math.min(
+        400,
+        Math.max(20, (warp.bars * 4 * 60) / regionDuration),
+      );
+      block.length = warp.bars * 4;
+      commitChange({ reRenderEditors: false });
+    });
+    controls.appendChild(createDeviceField("Length", barsSelect));
+  }
+
   controls.appendChild(
     createDeviceField(
       "Gain",

@@ -119,6 +119,14 @@ export const DEFAULT_ADSR = {
   release: 0.08,
 };
 
+export const DEFAULT_SAMPLE_WARP = {
+  enabled: false,
+  mode: "repitch",
+  sourceBpm: 120,
+  bars: 1,
+};
+export const SAMPLE_WARP_BAR_OPTIONS = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
+
 const DEFAULT_TRACKS = [
   { type: "synth", console: "NES", waveform: "pulse25" },
   { type: "synth", console: "C64", waveform: "triangle" },
@@ -161,6 +169,7 @@ export function createBlock({ startBeat = 0, length = 4, type = "synth" } = {}) 
       reverse: false,
       fadeIn: 0,
       fadeOut: 0,
+      warp: { ...DEFAULT_SAMPLE_WARP },
     });
   }
 
@@ -309,10 +318,33 @@ function normalizeBlocks(blocks, type, drumRows) {
       normalized.reverse = Boolean(safe.reverse);
       normalized.fadeIn = Number.isFinite(safe.fadeIn) ? clamp(safe.fadeIn, 0, 10) : 0;
       normalized.fadeOut = Number.isFinite(safe.fadeOut) ? clamp(safe.fadeOut, 0, 10) : 0;
+      normalized.warp = normalizeSampleWarp(safe.warp);
     }
 
     return normalized;
   });
+}
+
+function normalizeSampleWarp(warp) {
+  const safe = isObject(warp) ? warp : {};
+  return {
+    enabled: Boolean(safe.enabled),
+    mode: safe.mode === "beats" ? "beats" : "repitch",
+    sourceBpm: Number.isFinite(safe.sourceBpm)
+      ? clamp(safe.sourceBpm, 20, 400)
+      : DEFAULT_SAMPLE_WARP.sourceBpm,
+    bars: Number.isFinite(safe.bars)
+      ? SAMPLE_WARP_BAR_OPTIONS.reduce((closest, option) =>
+          Math.abs(option - safe.bars) < Math.abs(closest - safe.bars) ? option : closest,
+        )
+      : DEFAULT_SAMPLE_WARP.bars,
+  };
+}
+
+export function ensureSampleWarp(block) {
+  if (!block || typeof block !== "object") return { ...DEFAULT_SAMPLE_WARP };
+  block.warp = normalizeSampleWarp(block.warp);
+  return block.warp;
 }
 
 function normalizeTrack(track, index) {

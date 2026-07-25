@@ -39,6 +39,10 @@ export class Timeline {
     this.playheadEl = null;
     this.cursorEl = null;
     this.cursorBeat = 0;
+    this.scrollTop = 0;
+    this.scrollLeft = 0;
+    this.trackList = null;
+    this.laneScroller = null;
     this.selectedTrackId = project.tracks[0]?.id || null;
 
     this.render();
@@ -93,6 +97,10 @@ export class Timeline {
   }
 
   render() {
+    if (this.laneScroller) {
+      this.scrollTop = this.laneScroller.scrollTop;
+      this.scrollLeft = this.laneScroller.scrollLeft;
+    }
     this.container.innerHTML = "";
     this.blockElements.clear();
 
@@ -104,6 +112,8 @@ export class Timeline {
 
     const laneScroller = document.createElement("div");
     laneScroller.className = "lane-scroller";
+    this.trackList = trackList;
+    this.laneScroller = laneScroller;
 
     const lanes = document.createElement("div");
     lanes.className = "lanes";
@@ -121,6 +131,23 @@ export class Timeline {
 
     this.container.appendChild(trackList);
     this.container.appendChild(laneWrap);
+
+    let syncingScroll = false;
+    laneScroller.addEventListener("scroll", () => {
+      this.scrollTop = laneScroller.scrollTop;
+      this.scrollLeft = laneScroller.scrollLeft;
+      if (syncingScroll || trackList.scrollTop === laneScroller.scrollTop) return;
+      syncingScroll = true;
+      trackList.scrollTop = laneScroller.scrollTop;
+      syncingScroll = false;
+    });
+    trackList.addEventListener("scroll", () => {
+      this.scrollTop = trackList.scrollTop;
+      if (syncingScroll || laneScroller.scrollTop === trackList.scrollTop) return;
+      syncingScroll = true;
+      laneScroller.scrollTop = trackList.scrollTop;
+      syncingScroll = false;
+    });
 
     this.updateGridVariables();
 
@@ -156,7 +183,22 @@ export class Timeline {
       lanes.appendChild(lane);
     });
 
+    const horizontalScrollbarHeight = Math.max(
+      0,
+      laneScroller.offsetHeight - laneScroller.clientHeight,
+    );
+    if (horizontalScrollbarHeight > 0) {
+      const scrollbarSpacer = document.createElement("div");
+      scrollbarSpacer.className = "timeline-scrollbar-spacer";
+      scrollbarSpacer.style.height = `${horizontalScrollbarHeight}px`;
+      scrollbarSpacer.setAttribute("aria-hidden", "true");
+      trackList.appendChild(scrollbarSpacer);
+    }
+
     this.setCursor(this.cursorBeat);
+    laneScroller.scrollTop = this.scrollTop;
+    laneScroller.scrollLeft = this.scrollLeft;
+    trackList.scrollTop = this.scrollTop;
   }
 
   createTrackHeader(track, index) {
@@ -343,7 +385,11 @@ export class Timeline {
       }
       const mode = document.createElement("span");
       mode.className = "block-sample-mode";
-      mode.textContent = block.mode === "loop" ? "LOOP" : "ONE SHOT";
+      mode.textContent = block.warp?.enabled
+        ? `WARP ${block.warp.mode === "beats" ? "BEATS" : "REPITCH"}`
+        : block.mode === "loop"
+          ? "LOOP"
+          : "ONE SHOT";
       waveform.appendChild(mode);
       blockEl.appendChild(waveform);
     }
