@@ -766,6 +766,27 @@ function drawSampleWaveform(canvas, asset, block) {
     context.strokeRect(loopStart, 1, loopEnd - loopStart, height - 2);
   }
 
+  const warp = ensureSampleWarp(block);
+  if (warp.enabled) {
+    warp.markers.forEach((marker) => {
+      if (marker.sourceTime < sourceStartTime || marker.sourceTime > sourceEndTime) return;
+      const x = (marker.sourceTime / duration) * width;
+      context.strokeStyle = "#f4b849";
+      context.lineWidth = 1.5;
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(x, height);
+      context.stroke();
+      context.fillStyle = "#f4b849";
+      context.beginPath();
+      context.moveTo(x - 5, 0);
+      context.lineTo(x + 5, 0);
+      context.lineTo(x, 7);
+      context.closePath();
+      context.fill();
+    });
+  }
+
   const drawBoundary = (time, color, fromTop) => {
     const x = (time / duration) * width;
     context.strokeStyle = color;
