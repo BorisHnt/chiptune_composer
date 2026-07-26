@@ -1574,6 +1574,216 @@ main {
   overflow: hidden;
 }
 
+.overlay.wav-export-overlay {
+  height: 100vh;
+  padding: var(--space-lg);
+  display: grid;
+  place-items: center;
+  z-index: 13;
+}
+
+.overlay.wav-export-overlay.hidden {
+  display: none;
+}
+
+.wav-export-panel {
+  width: min(680px, 100%);
+  height: auto;
+  max-height: calc(100vh - 48px);
+  background: #f5f6f7;
+  overflow: hidden;
+}
+
+.wav-export-project-name {
+  max-width: 420px;
+  overflow: hidden;
+  color: rgba(70, 66, 94, 0.68);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wav-export-body {
+  min-height: 0;
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.wav-export-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.wav-export-mode .btn {
+  min-height: 36px;
+  border-radius: 0;
+}
+
+.wav-export-mode .btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.wav-export-mode .btn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.wav-export-track-section {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: var(--border-soft);
+  border-bottom: var(--border-soft);
+}
+
+.wav-export-track-section.hidden {
+  display: none;
+}
+
+.wav-export-track-toolbar {
+  min-height: 42px;
+  padding: var(--space-xs) 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  font: 0.7rem "JetBrains Mono", monospace;
+}
+
+.wav-export-track-toolbar > div {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.wav-export-track-list {
+  max-height: min(48vh, 440px);
+  overflow-y: auto;
+  border-top: var(--border-soft);
+}
+
+.wav-export-track-row {
+  min-height: 48px;
+  padding: var(--space-xs) var(--space-sm);
+  display: grid;
+  grid-template-columns: 22px 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-sm);
+  border-bottom: var(--border-soft);
+  cursor: pointer;
+}
+
+.wav-export-track-row:last-child {
+  border-bottom: 0;
+}
+
+.wav-export-track-row:hover {
+  background: rgba(0, 185, 190, 0.08);
+}
+
+.wav-export-track-row input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-teal);
+}
+
+.wav-export-track-number {
+  color: rgba(70, 66, 94, 0.62);
+  font: 0.66rem "JetBrains Mono", monospace;
+}
+
+.wav-export-track-name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wav-export-track-name strong,
+.wav-export-track-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wav-export-track-name strong {
+  font-size: 0.78rem;
+  text-transform: capitalize;
+}
+
+.wav-export-track-name span {
+  color: rgba(70, 66, 94, 0.66);
+  font-size: 0.68rem;
+}
+
+.wav-export-track-state {
+  display: flex;
+  gap: var(--space-xs);
+  color: rgba(70, 66, 94, 0.62);
+  font: 0.62rem "JetBrains Mono", monospace;
+}
+
+.wav-export-track-state span {
+  padding: 2px 4px;
+  border: var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.wav-export-footer {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.wav-export-status {
+  min-width: 0;
+  color: #9b3642;
+  font: 0.68rem "JetBrains Mono", monospace;
+}
+
+.wav-export-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: var(--space-xs);
+}
+
+@media (max-width: 600px) {
+  .overlay.wav-export-overlay {
+    padding: var(--space-xs);
+  }
+
+  .wav-export-panel {
+    max-height: calc(100vh - 12px);
+  }
+
+  .wav-export-body {
+    padding: var(--space-sm);
+  }
+
+  .wav-export-track-list {
+    max-height: 52vh;
+  }
+
+  .wav-export-track-row {
+    grid-template-columns: 20px 34px minmax(0, 1fr);
+  }
+
+  .wav-export-track-state {
+    display: none;
+  }
+
+  .wav-export-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wav-export-actions {
+    justify-content: flex-end;
+  }
+}
+
 .confirm-panel {
   max-width: 420px;
   margin: 0 auto;

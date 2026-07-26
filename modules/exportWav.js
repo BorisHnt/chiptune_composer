@@ -63,9 +63,31 @@ function audioBufferToWav(buffer) {
   return arrayBuffer;
 }
 
-export async function exportProjectToWav(project) {
+function sanitizeFileNamePart(value, fallback = "") {
+  const safeValue = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return safeValue || fallback;
+}
+
+export async function exportProjectToWav(project, options = {}) {
+  const { trackIds = null, fileNameSuffix = "" } = options;
+  const selectedTrackIds = Array.isArray(trackIds) ? new Set(trackIds) : null;
+  const renderProject = selectedTrackIds
+    ? {
+        ...project,
+        tracks: project.tracks.filter((track) => selectedTrackIds.has(track.id)),
+      }
+    : project;
+  if (selectedTrackIds && renderProject.tracks.length === 0) {
+    throw new Error("Select at least one track.");
+  }
+
   const secondsPerBeat = 60 / project.bpm;
-  const totalBeats = getProjectEndBeat(project);
+  const totalBeats = getProjectEndBeat(renderProject);
   const duration = totalBeats * secondsPerBeat + 1;
   const sampleRate = 44100;
   const OfflineContextClass = window.OfflineAudioContext || window.webkitOfflineAudioContext;
@@ -73,7 +95,7 @@ export async function exportProjectToWav(project) {
     throw new Error("OfflineAudioContext not supported");
   }
 
-  const offline = new OfflineContextClass(2, duration * sampleRate, sampleRate);
+  const offline = new OfflineContextClass(2, Math.ceil(duration * sampleRate), sampleRate);
   const master = offline.createGain();
   master.gain.value = Number.isFinite(project.masterVolume) ? project.masterVolume : 0.9;
   const limiter = offline.createDynamicsCompressor();
@@ -85,7 +107,11 @@ export async function exportProjectToWav(project) {
   master.connect(limiter);
   limiter.connect(offline.destination);
 
-  scheduleProject(offline, project, { startTime: 0, master });
+  scheduleProject(offline, renderProject, {
+    startTime: 0,
+    master,
+    ignoreMuteSolo: Boolean(selectedTrackIds),
+  });
 
   const rendered = await offline.startRendering();
   const wavData = audioBufferToWav(rendered);
@@ -94,13 +120,9 @@ export async function exportProjectToWav(project) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  const rawName = (project.name || "chiptune-export").trim();
-  const safeName = rawName
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-  anchor.download = `${safeName || "chiptune-export"}.wav`;
+  const safeName = sanitizeFileNamePart(project.name, "chiptune-export");
+  const safeSuffix = sanitizeFileNamePart(fileNameSuffix);
+  anchor.download = `${safeName}${safeSuffix ? `-${safeSuffix}` : ""}.wav`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

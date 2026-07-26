@@ -47,6 +47,19 @@ const ui = {
   bpmInput: document.getElementById("bpmInput"),
   loopBtn: document.getElementById("loopBtn"),
   exportBtn: document.getElementById("exportBtn"),
+  wavExportOverlay: document.getElementById("wavExportOverlay"),
+  wavExportProjectName: document.getElementById("wavExportProjectName"),
+  closeWavExportBtn: document.getElementById("closeWavExportBtn"),
+  wavExportMasterBtn: document.getElementById("wavExportMasterBtn"),
+  wavExportTracksBtn: document.getElementById("wavExportTracksBtn"),
+  wavExportTrackSection: document.getElementById("wavExportTrackSection"),
+  wavExportSelectionCount: document.getElementById("wavExportSelectionCount"),
+  wavExportSelectAllBtn: document.getElementById("wavExportSelectAllBtn"),
+  wavExportClearBtn: document.getElementById("wavExportClearBtn"),
+  wavExportTrackList: document.getElementById("wavExportTrackList"),
+  wavExportStatus: document.getElementById("wavExportStatus"),
+  wavExportCancelBtn: document.getElementById("wavExportCancelBtn"),
+  wavExportConfirmBtn: document.getElementById("wavExportConfirmBtn"),
   globalConsoleSelect: document.getElementById("globalConsoleSelect"),
   globalWaveformSelect: document.getElementById("globalWaveformSelect"),
   snapSelect: document.getElementById("snapSelect"),
@@ -130,6 +143,10 @@ const ui = {
 
 const STORAGE_KEY = "chiptune_composer_autosave_v1";
 let cacheSaveTimer = null;
+let wavExportMode = "master";
+let wavExportTrackIds = new Set();
+let wavExportInProgress = false;
+let wavExportReturnFocus = null;
 
 function loadProjectFromCache() {
   try {
@@ -318,6 +335,145 @@ function getSafeProjectName(extension) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 64);
   return `${safeName || "chiptune-project"}.${extension}`;
+}
+
+function getWavExportTrackDetail(track) {
+  const blockCount = track.blocks?.length || 0;
+  if (track.type === "sample") {
+    const names = [...new Set(
+      (track.blocks || [])
+        .map((block) => project.assets?.find((asset) => asset.id === block.assetId)?.name)
+        .filter(Boolean),
+    )];
+    return `${names.join(", ") || "Sample Player"} · ${blockCount} clip${blockCount === 1 ? "" : "s"}`;
+  }
+  const device = track.console || (track.type === "drums" ? "Drum Machine" : "Synth");
+  return `${device} · ${blockCount} clip${blockCount === 1 ? "" : "s"}`;
+}
+
+function renderWavExportDialog() {
+  const selectedMode = wavExportMode === "tracks";
+  ui.wavExportMasterBtn.setAttribute("aria-pressed", selectedMode ? "false" : "true");
+  ui.wavExportTracksBtn.setAttribute("aria-pressed", selectedMode ? "true" : "false");
+  ui.wavExportTrackSection.classList.toggle("hidden", !selectedMode);
+  ui.wavExportTrackList.innerHTML = "";
+
+  project.tracks.forEach((track, index) => {
+    const row = document.createElement("label");
+    row.className = "wav-export-track-row";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = wavExportTrackIds.has(track.id);
+    checkbox.disabled = wavExportInProgress;
+    checkbox.setAttribute("aria-label", `Track ${index + 1} ${track.type}`);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) wavExportTrackIds.add(track.id);
+      else wavExportTrackIds.delete(track.id);
+      renderWavExportDialog();
+    });
+
+    const number = document.createElement("span");
+    number.className = "wav-export-track-number";
+    number.textContent = String(index + 1).padStart(2, "0");
+
+    const name = document.createElement("span");
+    name.className = "wav-export-track-name";
+    const title = document.createElement("strong");
+    title.textContent = track.type;
+    const detail = document.createElement("span");
+    detail.textContent = getWavExportTrackDetail(track);
+    name.append(title, detail);
+
+    const state = document.createElement("span");
+    state.className = "wav-export-track-state";
+    if (track.mute) {
+      const muted = document.createElement("span");
+      muted.textContent = "MUTE";
+      state.appendChild(muted);
+    }
+    if (track.solo) {
+      const solo = document.createElement("span");
+      solo.textContent = "SOLO";
+      state.appendChild(solo);
+    }
+    row.append(checkbox, number, name, state);
+    ui.wavExportTrackList.appendChild(row);
+  });
+
+  const count = project.tracks.filter((track) => wavExportTrackIds.has(track.id)).length;
+  ui.wavExportSelectionCount.textContent =
+    `${count} track${count === 1 ? "" : "s"} selected`;
+  ui.wavExportConfirmBtn.disabled = wavExportInProgress || (selectedMode && count === 0);
+  ui.wavExportConfirmBtn.textContent = wavExportInProgress ? "Rendering..." : "Export WAV";
+  ui.wavExportMasterBtn.disabled = wavExportInProgress;
+  ui.wavExportTracksBtn.disabled = wavExportInProgress;
+  ui.wavExportSelectAllBtn.disabled = wavExportInProgress;
+  ui.wavExportClearBtn.disabled = wavExportInProgress;
+  ui.wavExportCancelBtn.disabled = wavExportInProgress;
+  ui.closeWavExportBtn.disabled = wavExportInProgress;
+}
+
+function setWavExportMode(mode) {
+  if (wavExportInProgress) return;
+  wavExportMode = mode === "tracks" ? "tracks" : "master";
+  ui.wavExportStatus.textContent = "";
+  renderWavExportDialog();
+}
+
+function openWavExportDialog() {
+  wavExportReturnFocus = document.activeElement;
+  wavExportMode = "master";
+  wavExportTrackIds = new Set(project.tracks.map((track) => track.id));
+  wavExportInProgress = false;
+  ui.wavExportProjectName.textContent = project.name || "Untitled Project";
+  ui.wavExportStatus.textContent = "";
+  renderWavExportDialog();
+  ui.wavExportOverlay.classList.remove("hidden");
+  ui.wavExportMasterBtn.focus();
+}
+
+function closeWavExportDialog() {
+  if (wavExportInProgress) return;
+  ui.wavExportOverlay.classList.add("hidden");
+  if (wavExportReturnFocus instanceof HTMLElement && wavExportReturnFocus.isConnected) {
+    wavExportReturnFocus.focus();
+  }
+  wavExportReturnFocus = null;
+}
+
+async function confirmWavExport() {
+  if (wavExportInProgress) return;
+  const trackIds = project.tracks
+    .filter((track) => wavExportTrackIds.has(track.id))
+    .map((track) => track.id);
+  if (wavExportMode === "tracks" && trackIds.length === 0) {
+    ui.wavExportStatus.textContent = "Select at least one track.";
+    return;
+  }
+
+  wavExportInProgress = true;
+  ui.wavExportStatus.textContent = "";
+  renderWavExportDialog();
+  try {
+    await ensureProjectAssetsLoaded();
+    const suffix = wavExportMode === "tracks"
+      ? `tracks-${trackIds
+          .map((id) => project.tracks.findIndex((track) => track.id === id) + 1)
+          .join("-")}`
+      : "";
+    await exportProjectToWav(project, {
+      trackIds: wavExportMode === "tracks" ? trackIds : null,
+      fileNameSuffix: suffix,
+    });
+    wavExportInProgress = false;
+    closeWavExportDialog();
+  } catch (error) {
+    console.error("Failed to export WAV", error);
+    wavExportInProgress = false;
+    ui.wavExportStatus.textContent = error?.message || "WAV export failed.";
+    renderWavExportDialog();
+  }
 }
 
 function findDuplicateStart(track, source) {
@@ -3172,9 +3328,22 @@ ui.clearCacheBtn.addEventListener("click", async () => {
   await clearAssets();
 });
 
-ui.exportBtn.addEventListener("click", async () => {
-  await ensureProjectAssetsLoaded();
-  await exportProjectToWav(project);
+ui.exportBtn.addEventListener("click", openWavExportDialog);
+ui.wavExportMasterBtn.addEventListener("click", () => setWavExportMode("master"));
+ui.wavExportTracksBtn.addEventListener("click", () => setWavExportMode("tracks"));
+ui.wavExportSelectAllBtn.addEventListener("click", () => {
+  wavExportTrackIds = new Set(project.tracks.map((track) => track.id));
+  renderWavExportDialog();
+});
+ui.wavExportClearBtn.addEventListener("click", () => {
+  wavExportTrackIds.clear();
+  renderWavExportDialog();
+});
+ui.wavExportCancelBtn.addEventListener("click", closeWavExportDialog);
+ui.closeWavExportBtn.addEventListener("click", closeWavExportDialog);
+ui.wavExportConfirmBtn.addEventListener("click", confirmWavExport);
+ui.wavExportOverlay.addEventListener("pointerdown", (event) => {
+  if (event.target === ui.wavExportOverlay) closeWavExportDialog();
 });
 
 ui.previewBtn.addEventListener("click", () => {
@@ -3477,6 +3646,10 @@ ui.editorOverlay.addEventListener("pointerdown", () => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !ui.wavExportOverlay.classList.contains("hidden")) {
+    closeWavExportDialog();
+    return;
+  }
   if (event.key === "Escape" && !ui.sampleMarkerOverlay.classList.contains("hidden")) {
     closeSampleMarkerEditor();
     return;

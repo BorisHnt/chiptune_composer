@@ -289,6 +289,47 @@
       </div>
     </div>
 
+    <div
+      id="wavExportOverlay"
+      class="overlay wav-export-overlay hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="wavExportTitle"
+    >
+      <div class="overlay-panel wav-export-panel">
+        <div class="overlay-header">
+          <div>
+            <strong id="wavExportTitle">Export WAV</strong>
+            <div id="wavExportProjectName" class="wav-export-project-name">Project</div>
+          </div>
+          <button id="closeWavExportBtn" class="btn" type="button">Close</button>
+        </div>
+        <div class="wav-export-body">
+          <div class="wav-export-mode" role="group" aria-label="WAV export mode">
+            <button id="wavExportMasterBtn" class="btn toggle" type="button" aria-pressed="true">Master</button>
+            <button id="wavExportTracksBtn" class="btn toggle" type="button" aria-pressed="false">Selected Tracks</button>
+          </div>
+          <section id="wavExportTrackSection" class="wav-export-track-section hidden">
+            <div class="wav-export-track-toolbar">
+              <output id="wavExportSelectionCount">0 tracks selected</output>
+              <div>
+                <button id="wavExportSelectAllBtn" class="btn tiny" type="button">Select All</button>
+                <button id="wavExportClearBtn" class="btn tiny" type="button">Clear</button>
+              </div>
+            </div>
+            <div id="wavExportTrackList" class="wav-export-track-list"></div>
+          </section>
+          <div class="wav-export-footer">
+            <output id="wavExportStatus" class="wav-export-status" aria-live="polite"></output>
+            <div class="wav-export-actions">
+              <button id="wavExportCancelBtn" class="btn" type="button">Cancel</button>
+              <button id="wavExportConfirmBtn" class="btn" type="button">Export WAV</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="confirmOverlay" class="overlay hidden">
       <div class="overlay-panel confirm-panel">
         <div class="overlay-header">
